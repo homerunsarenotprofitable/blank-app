@@ -1,83 +1,180 @@
-import streamlit as st
 import requests
 import pandas as pd
+import streamlit as st
+import numpy as np
+from itertools import combinations
 
+# -------------------------
+# CONFIG
+# -------------------------
 API_KEY = "2cbb0724119f3699ff79ba1834553df1"
+PRIMARY_BOOK = "fanduel"  # market truth anchor
 
-st.set_page_config(page_title="HR EV Finder", layout="wide")
+st.set_page_config(layout="wide")
+st.title("⚾ HR EV Engine (Market Truth + Kelly + Correlation)")
 
-st.title("⚾ Home Run EV Finder (Market-Based)")
-st.caption("Using FanDuel, DraftKings, BetMGM as fair value")
+# -------------------------
+# SIDEBAR SETTINGS
+# -------------------------
+st.sidebar.header("Settings")
 
-# --- Functions ---
-def american_to_prob(odds):
-    if odds > 0:
-        return 100 / (odds + 100)
-    else:
-        return abs(odds) / (abs(odds) + 100)
+payout = st.sidebar.selectbox(
+    "Pick'em Payout",
+    {"2-pick (3x)": 3.0, "3-pick (6x)": 6.0, "4-pick (10x)": 10.0}
+)
 
+kelly_fraction = st.sidebar.slider("Kelly Fraction", 0.1, 1.0, 0.5)
+bankroll = st.sidebar.number_input("Bankroll ($)", value=1000)
+
+min_ev = st.sidebar.slider("Min EV % Filter", -10, 20, 0)
+
+# -------------------------
+# FETCH DATA
+# -------------------------
 @st.cache_data(ttl=60)
-def fetch_odds():
-    url = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/"
+def fetch_data():
+    url = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
     params = {
         "apiKey": API_KEY,
-        "regions": "us",
         "markets": "player_home_runs",
+        "regions": "us",
         "oddsFormat": "american"
     }
-    res = requests.get(url, params=params)
-    return res.json()
+    return requests.get(url, params=params).json()
 
-data = fetch_odds()
+data = fetch_data()
 
-# --- Process Data ---
-players = {}
-
-for game in data:
-    for book in game["bookmakers"]:
-        if book["key"] not in ["fanduel", "draftkings", "betmgm"]:
-            continue
-
-        for market in book["markets"]:
-            for outcome in market["outcomes"]:
-                name = outcome["name"]
-                odds = outcome["price"]
-                prob = american_to_prob(odds)
-
-                players.setdefault(name, []).append(prob)
-
-# --- Build Results ---
+# -------------------------
+# PARSE SHARP BOOK ONLY
+# -------------------------
 rows = []
 
-for player, probs in players.items():
-    if len(probs) < 2:
-        continue
+for game in data:
+    matchup = f"{game.get('home_team')} vs {game.get('away_team')}"
 
-    avg_prob = sum(probs) / len(probs)
-    under_prob = 1 - avg_prob
+    for bookmaker in game.get("bookmakers", []):
+        if bookmaker["key"] == PRIMARY_BOOK:
+            for market in bookmaker["markets"]:
+                for outcome in market["outcomes"]:
+                    odds = outcome["price"]
 
-    # Compare to 2-pick PrizePicks break-even (~57.7%)
-    edge = under_prob - 0.577
+                    if odds > 0:
+                        implied = 100 / (odds + 100)
+                    else:
+                        implied = -odds / (-odds + 100)
 
-    rows.append({
-        "Player": player,
-        "HR Probability": round(avg_prob, 3),
-        "Under Probability": round(under_prob, 3),
-        "Edge vs 2-Pick": round(edge, 3)
-    })
+                    rows.append({
+                        "Player": outcome["name"],
+                        "Game": matchup,
+                        "Odds": odds,
+                        "Implied": implied
+                    })
 
 df = pd.DataFrame(rows)
-df = df.sort_values(by="Under Probability", ascending=False)
 
-# --- Filters ---
-min_edge = st.slider("Minimum Edge", 0.0, 0.5, 0.05)
+# -------------------------
+# TRUE PROBABILITY (DE-VIG)
+# -------------------------
+# Conservative HR adjustment
+df["True Prob"] = df["Implied"] * 0.96
 
-filtered_df = df[df["Edge vs 2-Pick"] > min_edge]
+# -------------------------
+# EV CALCULATION
+# -------------------------
+df["EV"] = (df["True Prob"] * payout) - 1
+df["EV %"] = df["EV"] * 100
 
-# --- Display ---
-st.subheader("🔥 Best Under 0.5 HR Plays")
-st.dataframe(filtered_df, use_container_width=True)
+# -------------------------
+# KELLY CRITERION
+# -------------------------
+b = payout - 1
 
-# --- Top Picks ---
-st.subheader("⭐ Top 10 Plays")
-st.table(filtered_df.head(10))
+df["Kelly %"] = ((b * df["True Prob"] - (1 - df["True Prob"])) / b)
+df["Kelly %"] = df["Kelly %"].clip(lower=0)
+
+df["Adj Kelly %"] = df["Kelly %"] * kelly_fraction
+
+df["Bet $"] = df["Adj Kelly %"] * bankroll
+df["Units"] = df["Bet $"] / 100  # 1 unit = $100
+
+# -------------------------
+# FILTER
+# -------------------------
+df = df[df["EV %"] >= min_ev]
+
+# -------------------------
+# CORRELATION MODEL
+# -------------------------
+def correlation_penalty(picks):
+    penalty = 0
+
+    for a, b in combinations(picks, 2):
+        if a["Game"] == b["Game"]:
+            penalty += 0.15  # same game correlation
+
+    return penalty
+
+def parlay_ev(picks):
+    prob = np.prod([p["True Prob"] for p in picks])
+    penalty = correlation_penalty(picks)
+
+    adj_prob = prob * (1 - penalty)
+    return (adj_prob * payout) - 1
+
+# -------------------------
+# PARLAY OPTIMIZER
+# -------------------------
+top_candidates = df.sort_values("EV %", ascending=False).head(20)
+
+best_combo = None
+best_ev = -999
+
+for combo in combinations(top_candidates.to_dict("records"), 2):
+    ev = parlay_ev(combo)
+
+    if ev > best_ev:
+        best_ev = ev
+        best_combo = combo
+
+# -------------------------
+# DISPLAY
+# -------------------------
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("🔥 Top HR Probability")
+    st.dataframe(
+        df.sort_values("True Prob", ascending=False)
+        [["Player", "Game", "Odds", "True Prob"]]
+        .head(10),
+        use_container_width=True
+    )
+
+with col2:
+    st.subheader("💰 Top EV + Kelly")
+    st.dataframe(
+        df.sort_values("EV %", ascending=False)
+        [["Player", "EV %", "True Prob", "Units"]]
+        .head(10),
+        use_container_width=True
+    )
+
+# -------------------------
+# BEST PARLAY
+# -------------------------
+st.subheader("🧠 Best Parlay (Correlation Adjusted)")
+
+if best_combo:
+    for pick in best_combo:
+        st.write(f"{pick['Player']} — {pick['Game']}")
+
+    st.write(f"Parlay EV: {best_ev:.2%}")
+
+# -------------------------
+# INSIGHTS
+# -------------------------
+st.markdown("### 📊 Insights")
+
+st.write(f"Avg HR Prob: {df['True Prob'].mean():.2%}")
+st.write(f"% Positive EV: {(df['EV'] > 0).mean():.2%}")
+st.write(f"Avg Bet Size: {df['Units'].mean():.2f} units")
