@@ -46,13 +46,12 @@ if not ev.empty:
             how="left"
         )
 
-        # ✅ FIXED EV FORMULA
+        # ✅ Correct EV formula
         ev["EV"] = ev["baseline_prob"] * (ev["decimal_odds"] - 1) - (1 - ev["baseline_prob"])
 
-        # Filter for +EV picks
         ev = ev[ev["EV"] >= 0.05]
 
-# --- KELLY FUNCTION (FIXED) ---
+# --- KELLY FUNCTION ---
 def kelly_fraction(prob, decimal_odds):
     b = decimal_odds - 1
     if b <= 0:
@@ -60,13 +59,14 @@ def kelly_fraction(prob, decimal_odds):
     f = (b * prob - (1 - prob)) / b
     return max(f, 0)
 
-# --- NAVIGATION ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+# --- TABS (FIXED) ---
+tab1, tab2, tab3, tab4, tab5, tab_test = st.tabs([
     "🔥 Top 10 Props",
     "🧩 Slate Builder",
     "💡 Suggested Slates",
     "📊 Performance",
-    "📜 History"
+    "📜 History",
+    "🧪 Test Odds"
 ])
 
 # =========================
@@ -83,10 +83,9 @@ with tab1:
             color = "#00ff99" if val >= 0.1 else "#ccffcc"
             return f"background: linear-gradient(90deg, {color} {width}%, transparent {width}%); font-weight:bold;"
 
-        display_cols = ["player", "book", "prop", "decimal_odds", "EV"]
-
         st.dataframe(
-            top10[display_cols].style.applymap(ev_bar, subset=["EV"]),
+            top10[["player", "book", "prop", "decimal_odds", "EV"]]
+            .style.applymap(ev_bar, subset=["EV"]),
             use_container_width=True
         )
     else:
@@ -99,11 +98,11 @@ with tab2:
     st.header("🧩 Slate Builder (Manual)")
 
     if not ev.empty:
-        label_series = ev["player"] + " | " + ev["prop"]
+        labels = ev["player"] + " | " + ev["prop"]
 
         selections = st.multiselect(
             "Select picks for your slate",
-            label_series,
+            labels,
             default=[]
         )
 
@@ -115,8 +114,7 @@ with tab2:
         )
 
         if selections:
-            # ✅ FIXED FILTERING
-            selected_rows = ev[label_series.isin(selections)]
+            selected_rows = ev[labels.isin(selections)]
 
             probs = selected_rows["baseline_prob"].tolist()
 
@@ -124,10 +122,8 @@ with tab2:
             for p in probs:
                 combined_prob *= p
 
-            # EV (same corrected logic)
             slate_ev = combined_prob * (slate_payout - 1) - (1 - combined_prob)
 
-            # ✅ FIXED KELLY
             suggested_units = kelly_fraction(combined_prob, slate_payout)
 
             st.metric("Combined Probability", f"{round(combined_prob * 100, 2)}%")
@@ -146,8 +142,7 @@ with tab3:
 
     if not ev.empty:
         top_picks = ev.sort_values("EV", ascending=False).head(10)
-
-        label_series = top_picks["player"] + " | " + top_picks["prop"]
+        labels = top_picks["player"] + " | " + top_picks["prop"]
 
         max_slate_size = st.slider("Max picks per slate", 2, 5, value=3)
 
@@ -162,15 +157,13 @@ with tab3:
         slates = []
 
         for r in range(2, max_slate_size + 1):
-            for combo in combinations(label_series, r):
+            for combo in combinations(labels, r):
                 probs = []
 
                 for c in combo:
-                    # ✅ FIXED FILTERING
                     prob = top_picks[
                         (top_picks["player"] + " | " + top_picks["prop"]) == c
                     ]["baseline_prob"].values[0]
-
                     probs.append(prob)
 
                 combined_prob = 1
@@ -192,10 +185,10 @@ with tab3:
 
         st.dataframe(slate_df, use_container_width=True)
     else:
-        st.info("No +EV picks available for suggestions")
+        st.info("No +EV picks available")
 
 # =========================
-# 📊 PERFORMANCE TAB
+# 📊 PERFORMANCE
 # =========================
 with tab4:
     st.header("📊 Performance")
@@ -205,11 +198,9 @@ with tab4:
 
         total_profit = history["profit"].sum()
         total_staked = history["stake"].sum()
-
         roi = total_profit / total_staked if total_staked > 0 else 0
 
         col1, col2, col3 = st.columns(3)
-
         col1.metric("Total Profit", f"${round(total_profit, 2)}")
         col2.metric("Total Staked", f"${round(total_staked, 2)}")
         col3.metric("ROI", f"{round(roi * 100, 2)}%")
@@ -221,14 +212,12 @@ with tab4:
         st.line_chart(history.set_index("date")["cum_profit"], use_container_width=True)
 
         st.subheader("Profit by Book")
-        profit_by_book = history.groupby("book")["profit"].sum()
-
-        st.bar_chart(profit_by_book, use_container_width=True)
+        st.bar_chart(history.groupby("book")["profit"].sum(), use_container_width=True)
     else:
         st.info("No bet history yet")
 
 # =========================
-# 📜 HISTORY TAB
+# 📜 HISTORY
 # =========================
 with tab5:
     st.header("📜 Bet History")
@@ -237,7 +226,6 @@ with tab5:
         books = st.multiselect("Filter by book", history["book"].unique())
 
         df = history.copy()
-
         if books:
             df = df[df["book"].isin(books)]
 
@@ -246,10 +234,8 @@ with tab5:
         st.info("No data yet")
 
 # =========================
-# 🧪 TEST ODDS TAB
+# 🧪 TEST ODDS
 # =========================
-tab_test = st.tab("🧪 Test Odds")
-
 with tab_test:
     st.header("🧪 Raw Odds Preview (first 5 rows)")
 
