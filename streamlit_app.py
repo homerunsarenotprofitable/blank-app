@@ -8,7 +8,7 @@ import time
 # ── Page config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
-page_title=“⚾ HR EV Scout”,
+page_title="⚾ HR EV Scout",
 page_icon=“⚾”,
 layout=“wide”,
 initial_sidebar_state=“expanded”,
