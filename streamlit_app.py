@@ -1,881 +1,1508 @@
-# -*- coding: utf-8 -*-
+“””
+HR Props EV Scanner v2 — California DFS Edition
+Bloomberg Terminal aesthetic · Advanced analytics · Bankroll tracking
+
+Run:
+pip install streamlit requests pandas numpy plotly
+streamlit run hr_ev_app_v2.py
+
+Env var: ODDS_API_KEY  (or paste in sidebar)
+“””
 
 import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
-from datetime import datetime
-import time
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import os, json, io, time
+from datetime import datetime, timezone
+from collections import defaultdict
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+
+# PAGE CONFIG
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-page_title=“HR EV Scout”,
-page_icon=”:baseball:”,
+page_title=“HR EV · CA DFS”,
+page_icon=“⚾”,
 layout=“wide”,
 initial_sidebar_state=“expanded”,
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+
+# STYLES  — Bloomberg Terminal / Trading Desk Aesthetic
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 st.markdown(”””
 
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+    --bg:        #080b0f;
+    --bg1:       #0d1117;
+    --bg2:       #111820;
+    --bg3:       #161f2c;
+    --border:    #1e2d3d;
+    --border2:   #243040;
+    --amber:     #f5a623;
+    --amber2:    #d4891e;
+    --green:     #00e676;
+    --green2:    #00c853;
+    --red:       #ff5252;
+    --red2:      #d32f2f;
+    --blue:      #29b6f6;
+    --muted:     #4a6275;
+    --text:      #c8d8e8;
+    --text2:     #8aa0b4;
+    --text3:     #4a6275;
+}
 
 html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-    background-color: #0a0e1a;
-    color: #e8eaf0;
+    font-family: 'IBM Plex Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
 }
+.stApp { background: var(--bg); }
+.stApp > header { background: transparent; }
 
 /* Sidebar */
 [data-testid="stSidebar"] {
-    background: #0f1526;
-    border-right: 1px solid #1e2740;
+    background: var(--bg1);
+    border-right: 1px solid var(--border);
+}
+[data-testid="stSidebar"] * { font-family: 'IBM Plex Mono', monospace; }
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    background: var(--bg1);
+    border-bottom: 1px solid var(--border);
+    gap: 0;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    padding: 10px 22px;
+    border-bottom: 2px solid transparent;
+}
+.stTabs [aria-selected="true"] {
+    background: transparent !important;
+    color: var(--amber) !important;
+    border-bottom: 2px solid var(--amber) !important;
 }
 
-/* Metric cards */
-.metric-card {
-    background: linear-gradient(135deg, #12192e 0%, #0f1526 100%);
-    border: 1px solid #1e2740;
-    border-radius: 12px;
-    padding: 18px 22px;
-    margin-bottom: 8px;
+/* Inputs */
+.stTextInput input, .stSelectbox select, .stMultiSelect div {
+    background: var(--bg2) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 13px !important;
+}
+.stSlider > div > div { background: var(--border2) !important; }
+
+/* Buttons */
+.stButton > button {
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    color: var(--amber);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    transition: all 0.15s;
+}
+.stButton > button:hover {
+    background: var(--bg3);
+    border-color: var(--amber);
+    color: var(--amber);
 }
 
-.metric-card h4 {
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: #5c6a8a;
-    margin: 0 0 6px 0;
+/* DataFrames */
+.stDataFrame { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+[data-testid="stDataFrame"] { border: 1px solid var(--border); border-radius: 4px; }
+
+/* Expander */
+.streamlit-expanderHeader {
+    background: var(--bg2) !important;
+    color: var(--text2) !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 12px !important;
+    border: 1px solid var(--border) !important;
 }
 
-.metric-card .val {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 36px;
-    letter-spacing: 1px;
-    line-height: 1;
-}
-
-/* EV table rows */
-.ev-row {
-    display: grid;
-    grid-template-columns: 28px 1fr 90px 80px 80px 90px 100px;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 18px;
-    border-bottom: 1px solid #141b2d;
-    transition: background 0.15s;
-}
-.ev-row:hover { background: #141b2d; }
-
-.ev-row.header {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: #3d4e73;
-    border-bottom: 1px solid #1e2740;
-    padding-top: 10px;
-    padding-bottom: 10px;
-}
-
-.rank { font-family: 'Bebas Neue'; font-size: 20px; color: #3d4e73; }
-.top3 { color: #f5c842; }
-
-.player-name { font-weight: 600; font-size: 15px; }
-.player-team { font-size: 11px; color: #5c6a8a; margin-top: 1px; font-family: 'DM Mono'; }
-
-.book-badge {
-    display: inline-block;
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    padding: 3px 8px;
+/* Metrics */
+[data-testid="metric-container"] {
+    background: var(--bg2);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    letter-spacing: 1px;
+    padding: 12px 16px;
 }
-.pp   { background: #1a2d1a; color: #4cde80; border: 1px solid #2a4a2a; }
-.ud   { background: #2d1a1a; color: #de6a4c; border: 1px solid #4a2a2a; }
-.fl   { background: #1a1a2d; color: #6a9cde; border: 1px solid #2a2a4a; }
-.bt   { background: #2d2d1a; color: #deb84c; border: 1px solid #4a4a2a; }
-.fd   { background: #1a2535; color: #4cafde; border: 1px solid #1e3050; }
-
-.odds-mono { font-family: 'DM Mono', monospace; font-size: 13px; }
-.odds-pos  { color: #4cde80; }
-.odds-neg  { color: #de6a4c; }
-
-.fair-prob { font-family: 'DM Mono', monospace; font-size: 13px; color: #9aa8c8; }
-
-.ev-pill {
-    display: inline-block;
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 17px;
-    letter-spacing: 0.5px;
-    padding: 4px 12px;
-    border-radius: 6px;
+[data-testid="stMetricValue"] {
+    font-family: 'IBM Plex Mono', monospace !important;
+    color: var(--amber) !important;
 }
-.ev-hot  { background: #0d3320; color: #3dfa8c; border: 1px solid #1a5530; }
-.ev-warm { background: #1a2e0d; color: #8dde4c; border: 1px solid #2a4a18; }
-.ev-cold { background: #2e1a0d; color: #de8c4c; border: 1px solid #4a2a18; }
-
-.grade {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 22px;
-    text-align: center;
-}
-
-.source-status {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    margin-bottom: 6px;
-    font-size: 13px;
-    background: #0f1526;
-    border: 1px solid #1e2740;
-}
-.dot-green { width:8px;height:8px;border-radius:50%;background:#3dfa8c;flex-shrink:0; }
-.dot-yellow{ width:8px;height:8px;border-radius:50%;background:#f5c842;flex-shrink:0; }
-.dot-red   { width:8px;height:8px;border-radius:50%;background:#fa3d5a;flex-shrink:0; }
-
-/* Streamlit overrides */
-div[data-testid="stMetric"] { display: none; }
-.stButton>button {
-    background: linear-gradient(135deg, #1e3a5f, #153060);
-    color: #7bb8f5;
-    border: 1px solid #1e3a5f;
-    border-radius: 8px;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    letter-spacing: 1.5px;
+[data-testid="stMetricLabel"] {
+    font-family: 'IBM Plex Mono', monospace !important;
+    color: var(--text3) !important;
+    font-size: 11px !important;
     text-transform: uppercase;
-    padding: 10px 20px;
-    width: 100%;
-    transition: all 0.2s;
+    letter-spacing: 0.1em;
 }
-.stButton>button:hover {
-    background: linear-gradient(135deg, #254870, #1a3870);
-    border-color: #4a90d9;
-    color: #a8d0ff;
-}
-.stTextInput>div>div>input {
-    background: #0a0e1a;
-    border: 1px solid #1e2740;
-    border-radius: 8px;
-    color: #e8eaf0;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-}
-h1 { font-family: 'Bebas Neue', sans-serif !important; letter-spacing: 2px !important; }
-h2 { font-family: 'Bebas Neue', sans-serif !important; letter-spacing: 1px !important; }
-h3 { font-family: 'DM Sans', sans-serif !important; font-weight: 600 !important; }
 
-.stDataFrame { display: none; }
+footer { visibility: hidden; }
+#MainMenu { visibility: hidden; }
 
-.table-wrap {
-    background: #0d1221;
-    border: 1px solid #1e2740;
-    border-radius: 14px;
+/* Custom classes */
+.terminal-header {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+}
+.stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 14px 18px;
+    position: relative;
     overflow: hidden;
-    margin-top: 12px;
+}
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+}
+.stat-card.amber::before { background: var(--amber); }
+.stat-card.green::before { background: var(--green); }
+.stat-card.red::before   { background: var(--red); }
+.stat-card.blue::before  { background: var(--blue); }
+
+.stat-label {
+    font-size: 10px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 6px;
+}
+.stat-value {
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.01em;
+}
+.stat-sub {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 4px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+}
+.badge-A  { background: #00e67622; color: #00e676; border: 1px solid #00e67655; }
+.badge-B  { background: #29b6f622; color: #29b6f6; border: 1px solid #29b6f655; }
+.badge-C  { background: #f5a62322; color: #f5a623; border: 1px solid #f5a62355; }
+.badge-D  { background: #ff525222; color: #ff5252; border: 1px solid #ff525255; }
+.badge-steam { background: #ff6d0022; color: #ff9100; border: 1px solid #ff6d0077; }
+.badge-lock  { background: #4a627522; color: #8aa0b4; border: 1px solid #4a627555; }
+
+.ticker-bar {
+    background: var(--bg1);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 0;
+    font-size: 11px;
+    color: var(--text2);
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.prop-row {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 12px 16px;
+    margin-bottom: 6px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    transition: border-color 0.15s;
+}
+.prop-row:hover { border-color: var(--amber); }
+
+.book-pill {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 2px;
+    padding: 1px 6px;
+    font-size: 9px;
+    color: var(--text3);
+    margin: 1px;
+    letter-spacing: 0.06em;
+}
+
+.prob-bar-bg {
+    background: var(--bg3);
+    border-radius: 1px;
+    height: 4px;
+    width: 100%;
+    overflow: hidden;
+}
+.prob-bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    background: var(--amber);
+}
+
+.kelly-display {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--amber);
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.pnl-positive { color: var(--green); }
+.pnl-negative { color: var(--red); }
+.pnl-neutral  { color: var(--amber); }
+
+.section-tag {
+    display: inline-block;
+    background: var(--amber);
+    color: var(--bg);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    padding: 2px 8px;
+    margin-bottom: 12px;
+    text-transform: uppercase;
 }
 </style>
 
 “””, unsafe_allow_html=True)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 
-def american_to_prob(odds: float) -> float:
-“”“Convert American odds to implied probability.”””
-if odds >= 0:
-return 100 / (odds + 100)
-else:
-return abs(odds) / (abs(odds) + 100)
+# CONSTANTS
 
-def prob_to_american(prob: float) -> float:
-“”“Convert probability to American odds.”””
-if prob <= 0 or prob >= 1:
-return 0
-if prob >= 0.5:
-return -(prob / (1 - prob)) * 100
-else:
-return ((1 - prob) / prob) * 100
+# ─────────────────────────────────────────────────────────────────────────────
 
-def remove_vig(yes_odds: float, no_odds: float) -> tuple:
-“”“Return (fair_yes_prob, fair_no_prob) with vig removed.”””
-p_yes = american_to_prob(yes_odds)
-p_no  = american_to_prob(no_odds)
-total = p_yes + p_no
-return p_yes / total, p_no / total
+SPORT_KEY  = “baseball_mlb”
+MARKET_KEY = “batter_home_runs”
+ODDS_BASE  = “https://api.the-odds-api.com/v4”
 
-def calc_ev(fair_prob: float, bet_odds: float) -> float:
-“”“EV per $1 wagered.”””
-if bet_odds >= 0:
-payout = bet_odds / 100
-else:
-payout = 100 / abs(bet_odds)
-return fair_prob * payout - (1 - fair_prob) * 1
-
-def ev_grade(ev: float) -> str:
-if ev >= 0.12: return “A+”
-if ev >= 0.08: return “A”
-if ev >= 0.05: return “B+”
-if ev >= 0.03: return “B”
-if ev >= 0.01: return “C”
-return “D”
-
-def ev_class(ev: float) -> str:
-if ev >= 0.06: return “ev-hot”
-if ev >= 0.02: return “ev-warm”
-return “ev-cold”
-
-def odds_class(odds: float) -> str:
-return “odds-pos” if odds >= 0 else “odds-neg”
-
-def fmt_odds(odds: float) -> str:
-return f”+{int(odds)}” if odds >= 0 else str(int(odds))
-
-def fmt_pct(p: float) -> str:
-return f”{p*100:.1f}%”
-
-# ── Data fetching ─────────────────────────────────────────────────────────────
-
-PRIZEPICKS_URL = (
-“https://api.prizepicks.com/projections”
-“?league_id=2&per_page=500&single_stat=true&state_code=CA”
-)
-PRIZEPICKS_HEADERS = {
-“User-Agent”: “Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) “
-“AppleWebKit/537.36 (KHTML, like Gecko) “
-“Chrome/122.0.0.0 Safari/537.36”,
-“Accept”: “application/json”,
-“Referer”: “https://app.prizepicks.com/”,
+SHARP_BOOKS = {
+“pinnacle”:      “Pinnacle”,
+“draftkings”:    “DraftKings”,
+“fanduel”:       “FanDuel”,
+“betmgm”:        “BetMGM”,
+“caesars”:       “Caesars”,
+“pointsbet_us”:  “PointsBet”,
+“bet365”:        “Bet365”,
+“williamhill_us”:“William Hill”,
 }
 
-UNDERDOG_URL = “https://api.underdogfantasy.com/beta/v5/over_under_lines”
-UNDERDOG_HEADERS = {
-“User-Agent”: “Mozilla/5.0”,
-“Accept”: “application/json”,
+# PrizePicks standard payouts by pick count
+
+PP_PAYOUTS = {2: 3.0, 3: 5.0, 4: 10.0, 5: 20.0, 6: 25.0}
+
+# Underdog (slightly different structure, similar payouts)
+
+UD_PAYOUTS = {2: 3.0, 3: 6.0, 4: 10.0, 5: 20.0, 6: 40.0}
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# MATH & ANALYTICS
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+def american_to_decimal(a: float) -> float:
+return a / 100 + 1 if a > 0 else 100 / abs(a) + 1
+
+def decimal_to_implied(d: float) -> float:
+return 1 / d if d > 0 else 0
+
+def american_to_implied(a: float) -> float:
+return decimal_to_implied(american_to_decimal(a))
+
+def remove_vig(over_imp: float, under_imp: float) -> tuple[float, float]:
+total = over_imp + under_imp
+if total == 0:
+return 0.5, 0.5
+return over_imp / total, under_imp / total
+
+def fair_to_american(prob: float) -> int:
+if prob <= 0: return 99999
+if prob >= 1: return -99999
+return int(round((1/prob - 1) * 100)) if prob < 0.5 else int(round(-(prob/(1-prob)) * 100))
+
+def ev_percent(fair_prob: float, payout_mult: float = 1.0) -> float:
+“”“EV for a DFS leg: win payout_mult × stake, lose stake.”””
+return fair_prob * (payout_mult + 1) - 1
+
+def kelly_fraction(fair_prob: float, payout_mult: float = 1.0) -> float:
+“”“Full Kelly stake as fraction of bankroll.”””
+if fair_prob <= 0 or fair_prob >= 1:
+return 0.0
+b = payout_mult  # net odds per unit
+q = 1 - fair_prob
+k = (b * fair_prob - q) / b
+return max(k, 0.0)
+
+def half_kelly(fair_prob: float, payout_mult: float = 1.0) -> float:
+return kelly_fraction(fair_prob, payout_mult) * 0.5
+
+def grade_play(ev: float, num_books: int, divergence: float) -> str:
+“”“Confidence grade A+ → F.”””
+score = 0
+if ev >= 0.08:   score += 4
+elif ev >= 0.05: score += 3
+elif ev >= 0.03: score += 2
+elif ev >= 0.01: score += 1
+if num_books >= 5: score += 3
+elif num_books >= 4: score += 2
+elif num_books >= 3: score += 1
+if divergence < 0.02: score += 2
+elif divergence < 0.04: score += 1
+if score >= 8:   return “A+”
+if score >= 6:   return “A”
+if score >= 5:   return “B+”
+if score >= 4:   return “B”
+if score >= 3:   return “C”
+if score >= 2:   return “D”
+return “F”
+
+def grade_badge(grade: str) -> str:
+g = grade.replace(”+”,””)
+cls = {“A”:“badge-A”,“B”:“badge-B”,“C”:“badge-C”,“D”:“badge-D”,“F”:“badge-D”}.get(g,“badge-D”)
+return f’<span class="badge {cls}">{grade}</span>’
+
+def steam_badge() -> str:
+return ‘<span class="badge badge-steam">🔥 STEAM</span>’
+
+def divergence_score(implied_list: list[float]) -> float:
+return np.std(implied_list) if len(implied_list) > 1 else 0.0
+
+def parlay_ev(legs: list[float], payout_mult: float) -> float:
+combined = np.prod(legs)
+return combined * payout_mult - 1
+
+def optimal_pick_count(leg_evs: list[float], platform: str = “PrizePicks”) -> dict:
+“”“Try all combinations and find optimal pick count.”””
+payouts = PP_PAYOUTS if platform == “PrizePicks” else UD_PAYOUTS
+probs = [0.5 + ev/2 for ev in leg_evs]  # rough fair prob from EV
+results = {}
+for n, mult in payouts.items():
+if n <= len(probs):
+# Best N legs by EV
+best_n = sorted(zip(leg_evs, probs), reverse=True)[:n]
+combined_prob = np.prod([p for _, p in best_n])
+e = parlay_ev([p for _, p in best_n], mult)
+results[n] = {“ev”: e, “prob”: combined_prob, “payout”: mult}
+return results
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# SESSION STATE
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+def init_state():
+defaults = {
+“prev_implied”:   {},       # player → fair_over_% for steam detection
+“saved_parlays”:  [],       # list of saved parlays
+“bankroll”:       1000.0,   # starting bankroll
+“bet_log”:        [],       # {date, player, side, stake, result, pnl}
+“last_refresh”:   None,
+“steam_alerts”:   [],
+“ev_history”:     defaultdict(list),  # player → list of ev snapshots
 }
+for k, v in defaults.items():
+if k not in st.session_state:
+st.session_state[k] = v
 
-@st.cache_data(ttl=180, show_spinner=False)
-def fetch_fanduel_hrs(api_key: str) -> tuple:
-“”“Fetch FanDuel HR odds from The Odds API. Returns (list_of_props, error_msg).”””
-if not api_key:
-return [], “No Odds API key provided”
+init_state()
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# API
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=90)
+def fetch_events(api_key: str) -> list:
+url = f”{ODDS_BASE}/sports/{SPORT_KEY}/events”
 try:
-url = (
-“https://api.the-odds-api.com/v4/sports/baseball_mlb/events”
-f”?apiKey={api_key}&dateFormat=iso”
-)
-r = requests.get(url, timeout=10)
-if r.status_code == 401:
-return [], “Invalid Odds API key”
-if r.status_code != 200:
-return [], f”Odds API error {r.status_code}”
+r = requests.get(url, params={“apiKey”: api_key, “dateFormat”: “iso”}, timeout=10)
+r.raise_for_status()
+return r.json()
+except:
+return []
 
-```
-    events = r.json()
-    if not events:
-        return [], "No MLB games found today"
-
-    props = []
-    for ev in events[:20]:  # limit to first 20 games
-        event_id = ev["id"]
-        prop_url = (
-            f"https://api.the-odds-api.com/v4/sports/baseball_mlb/events/{event_id}/odds"
-            f"?apiKey={api_key}&regions=us&markets=batter_home_runs&oddsFormat=american"
-            f"&bookmakers=fanduel"
-        )
-        pr = requests.get(prop_url, timeout=10)
-        if pr.status_code != 200:
-            continue
-        data = pr.json()
-        for bm in data.get("bookmakers", []):
-            if bm["key"] != "fanduel":
-                continue
-            for mkt in bm.get("markets", []):
-                if mkt["key"] != "batter_home_runs":
-                    continue
-                for outcome in mkt.get("outcomes", []):
-                    props.append({
-                        "player":    outcome["description"],
-                        "book":      "FanDuel",
-                        "line_type": outcome["name"],   # "Over" / "Under"
-                        "line":      outcome.get("point", 0.5),
-                        "odds":      outcome["price"],
-                        "game":      f"{ev.get('home_team','')} vs {ev.get('away_team','')}",
-                        "commence":  ev.get("commence_time", ""),
-                    })
-        time.sleep(0.15)
-    return props, None
-except Exception as e:
-    return [], str(e)
-```
-
-@st.cache_data(ttl=180, show_spinner=False)
-def fetch_other_books_hrs(api_key: str) -> tuple:
-“”“Fetch HR odds from multiple books (PrizePicks, Underdog, DraftKings, BetMGM) via Odds API + direct APIs.”””
-results = []
-errors  = {}
-
-```
-# ── PrizePicks (unofficial API) ──────────────────────────────────────────
+@st.cache_data(ttl=90)
+def fetch_event_props(api_key: str, event_id: str, book_keys: str) -> dict:
+url = f”{ODDS_BASE}/sports/{SPORT_KEY}/events/{event_id}/odds”
+params = {
+“apiKey”: api_key, “regions”: “us”,
+“markets”: MARKET_KEY, “oddsFormat”: “american”,
+“bookmakers”: book_keys,
+}
 try:
-    r = requests.get(PRIZEPICKS_URL, headers=PRIZEPICKS_HEADERS, timeout=10)
-    if r.status_code == 200:
-        data   = r.json()
-        players = {p["id"]: p for p in data.get("included", []) if p.get("type") == "new_player"}
-        for proj in data.get("data", []):
-            attrs = proj.get("attributes", {})
-            if attrs.get("stat_type", "").lower() not in ("home runs", "homeruns", "hr"):
-                continue
-            pid   = proj.get("relationships", {}).get("new_player", {}).get("data", {}).get("id")
-            pinfo = players.get(pid, {}).get("attributes", {})
-            name  = pinfo.get("display_name") or attrs.get("description") or "Unknown"
-            team  = pinfo.get("team_abbreviation", "")
-            line  = float(attrs.get("line_score", 0.5))
-            # PrizePicks pays fixed ~2x for single-pick over/under on most apps
-            # Treat as implied +100 / +100 (breakeven at 50%)
-            results.append({
-                "player": name, "team": team, "book": "PrizePicks",
-                "line": line, "line_type": "Over", "odds": 100,
-                "payout_multiplier": 2.0,
-            })
-        errors["PrizePicks"] = None
-    else:
-        errors["PrizePicks"] = f"HTTP {r.status_code}"
-except Exception as e:
-    errors["PrizePicks"] = str(e)
+r = requests.get(url, params=params, timeout=10)
+r.raise_for_status()
+return r.json()
+except:
+return {}
 
-# ── Underdog Fantasy (unofficial API) ────────────────────────────────────
+@st.cache_data(ttl=300)
+def fetch_quota(api_key: str) -> dict:
 try:
-    r = requests.get(UNDERDOG_URL, headers=UNDERDOG_HEADERS, timeout=10)
-    if r.status_code == 200:
-        data    = r.json()
-        appears = {a["id"]: a for a in data.get("appearances", [])}
-        players = {p["id"]: p for p in data.get("players", [])}
+r = requests.get(f”{ODDS_BASE}/sports”, params={“apiKey”: api_key}, timeout=8)
+return {
+“used”:      r.headers.get(“x-requests-used”, “?”),
+“remaining”: r.headers.get(“x-requests-remaining”, “?”),
+}
+except:
+return {“used”: “?”, “remaining”: “?”}
 
-        for ol in data.get("over_under_lines", []):
-            stat = ol.get("stat_value", "")
-            if stat.lower() not in ("home runs", "hr"):
-                continue
-            app_id = ol.get("appearance_id")
-            app    = appears.get(app_id, {})
-            pl     = players.get(app.get("player_id", ""), {})
-            name   = (pl.get("first_name", "") + " " + pl.get("last_name", "")).strip()
-            team   = app.get("team", {}).get("abbreviation", "") if isinstance(app.get("team"), dict) else ""
-            line   = float(ol.get("stat_value_decimal", 0.5))
-            results.append({
-                "player": name, "team": team, "book": "Underdog",
-                "line": line, "line_type": "Over", "odds": 100,
-                "payout_multiplier": 2.0,
-            })
-        errors["Underdog"] = None
-    else:
-        errors["Underdog"] = f"HTTP {r.status_code}"
-except Exception as e:
-    errors["Underdog"] = str(e)
+def fetch_all_props(api_key: str, selected_book_keys: list) -> list:
+events = fetch_events(api_key)
+book_keys_str = “,”.join(selected_book_keys)
+all_props = []
+progress = st.progress(0, text=“Fetching HR props…”)
+for i, event in enumerate(events[:15]):
+progress.progress((i+1)/min(len(events),15), text=f”Fetching {event[‘away_team’]} @ {event[‘home_team’]}…”)
+data = fetch_event_props(api_key, event[“id”], book_keys_str)
+for bk in data.get(“bookmakers”, []):
+for mkt in bk.get(“markets”, []):
+if mkt[“key”] != MARKET_KEY: continue
+for out in mkt.get(“outcomes”, []):
+all_props.append({
+“event_id”:  event[“id”],
+“game”:      f”{event[‘away_team’]} @ {event[‘home_team’]}”,
+“commence”:  event[“commence_time”],
+“player”:    out[“description”],
+“line”:      out.get(“point”, 0.5),
+“side”:      out[“name”],
+“price”:     out[“price”],
+“book”:      bk[“title”],
+“book_key”:  bk[“key”],
+})
+progress.empty()
+return all_props
 
-# ── Fliff & Betr via The Odds API (if key available) ─────────────────────
-for book_key, book_label in [("fliff", "Fliff"), ("betr", "Betr")]:
-    if not api_key:
-        errors[book_label] = "Odds API key required"
-        continue
-    try:
-        url = (
-            "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
-            f"?apiKey={api_key}&regions=us&markets=batter_home_runs"
-            f"&oddsFormat=american&bookmakers={book_key}"
-        )
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            for ev in r.json():
-                for bm in ev.get("bookmakers", []):
-                    for mkt in bm.get("markets", []):
-                        for outcome in mkt.get("outcomes", []):
-                            results.append({
-                                "player": outcome.get("description", ""),
-                                "team": "",
-                                "book": book_label,
-                                "line": outcome.get("point", 0.5),
-                                "line_type": outcome.get("name", "Over"),
-                                "odds": outcome["price"],
-                                "payout_multiplier": None,
-                            })
-            errors[book_label] = None
-        else:
-            errors[book_label] = f"HTTP {r.status_code}"
-    except Exception as e:
-        errors[book_label] = str(e)
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ── DraftKings as bonus via Odds API ─────────────────────────────────────
-if api_key:
-    try:
-        url = (
-            "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
-            "?apiKey=" + api_key +
-            "&regions=us&markets=batter_home_runs"
-            "&oddsFormat=american&bookmakers=draftkings"
-        )
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            for ev in r.json():
-                for bm in ev.get("bookmakers", []):
-                    for mkt in bm.get("markets", []):
-                        for outcome in mkt.get("outcomes", []):
-                            results.append({
-                                "player": outcome.get("description", ""),
-                                "team": "",
-                                "book": "DraftKings",
-                                "line": outcome.get("point", 0.5),
-                                "line_type": outcome.get("name", "Over"),
-                                "odds": outcome["price"],
-                                "payout_multiplier": None,
-                            })
-    except Exception:
-        pass
+# MOCK DATA  (realistic, using real players + 2025 opener matchups)
 
-return results, errors
-```
+# ─────────────────────────────────────────────────────────────────────────────
 
-def build_ev_table(fd_props: list, other_props: list) -> pd.DataFrame:
-“””
-For each player+line found on other books, look up FanDuel no-vig fair prob
-and compute EV.
-“””
-# Build FanDuel fair-prob lookup: (player_lower, line, “over”) -> fair_prob
-fd_lookup = {}
-# Group FD props by player+line
-from collections import defaultdict
-fd_by_player = defaultdict(list)
-for p in fd_props:
-key = (p[“player”].lower().strip(), float(p[“line”]))
-fd_by_player[key].append(p)
-
-```
-for (player_key, line), group in fd_by_player.items():
-    over  = next((x for x in group if x["line_type"].lower() == "over"),  None)
-    under = next((x for x in group if x["line_type"].lower() == "under"), None)
-    if over and under:
-        fp_over, fp_under = remove_vig(over["odds"], under["odds"])
-        fd_lookup[(player_key, line, "over")]  = (fp_over,  over["odds"],  under["odds"])
-        fd_lookup[(player_key, line, "under")] = (fp_under, over["odds"],  under["odds"])
-    elif over:
-        fp = american_to_prob(over["odds"])
-        fd_lookup[(player_key, line, "over")] = (fp, over["odds"], None)
-
+def mock_props() -> list:
+np.random.seed(int(time.time()) // 120)  # changes every 2 min for realism
+players_games = [
+(“Shohei Ohtani”,“NYY @ LAD”),(“Aaron Judge”,“NYY @ LAD”),
+(“Freddie Freeman”,“ATL @ LAD”),(“Ronald Acuña Jr.”,“ATL @ LAD”),
+(“Juan Soto”,“NYY @ LAD”),(“Pete Alonso”,“PHI @ NYM”),
+(“Yordan Alvarez”,“TEX @ HOU”),(“Gunnar Henderson”,“TOR @ BAL”),
+(“Fernando Tatis Jr.”,“STL @ SD”),(“Kyle Schwarber”,“PHI @ NYM”),
+(“Bryce Harper”,“PHI @ NYM”),(“Matt Olson”,“ATL @ LAD”),
+(“Adolis García”,“TEX @ HOU”),(“José Ramírez”,“DET @ CLE”),
+(“Manny Machado”,“STL @ SD”),(“Vladimir Guerrero Jr.”,“TOR @ BAL”),
+(“Marcell Ozuna”,“ATL @ LAD”),(“Christian Yelich”,“MIL @ CHC”),
+(“Mike Trout”,“OAK @ LAA”),(“Bo Bichette”,“TOR @ BAL”),
+]
+books = list(SHARP_BOOKS.keys())[:6]
 rows = []
-for p in other_props:
-    name      = p["player"].strip()
-    line      = float(p.get("line", 0.5))
-    lt        = p.get("line_type", "Over").lower()
-    odds      = float(p.get("odds", 100))
-    book      = p["book"]
-    team      = p.get("team", "")
-    mult      = p.get("payout_multiplier")
+for player, game in players_games:
+true_over = np.random.uniform(0.06, 0.22)
+for book in books:
+vig = np.random.uniform(0.04, 0.09)
+noise = np.random.normal(0, 0.012)
+book_over  = true_over + noise + vig / 2
+book_under = (1 - true_over) + vig / 2
+# Convert to American
+over_price  = fair_to_american(book_over)
+under_price = fair_to_american(book_under)
+for side, price in [(“Over”, over_price), (“Under”, under_price)]:
+rows.append({
+“event_id”: game.replace(” “,”_”).lower(),
+“game”: game, “commence”: “2026-03-29T19:05:00Z”,
+“player”: player, “line”: 0.5,
+“side”: side, “price”: price,
+“book”: SHARP_BOOKS[book], “book_key”: book,
+})
+return rows
 
-    key = (name.lower(), line, lt)
-    if key not in fd_lookup:
-        # try partial match on first/last name
-        for (pk, pl, plt), val in fd_lookup.items():
-            name_parts = name.lower().split()
-            if any(part in pk for part in name_parts) and abs(pl - line) < 0.26 and plt == lt:
-                key = (pk, pl, plt)
-                name = pk.title()
-                break
+# ─────────────────────────────────────────────────────────────────────────────
 
-    if key not in fd_lookup:
-        continue
+# DATA PROCESSING
 
-    fair_prob, fd_over_odds, fd_under_odds = fd_lookup[key]
+# ─────────────────────────────────────────────────────────────────────────────
 
-    # EV calculation
-    if mult:
-        # DFS-style: payout is (mult - 1) per $1 on win
-        ev = fair_prob * (mult - 1) - (1 - fair_prob) * 1
-    else:
-        ev = calc_ev(fair_prob, odds)
+def process_props(raw: list) -> pd.DataFrame:
+if not raw:
+return pd.DataFrame()
+df = pd.DataFrame(raw)
+df[“implied”] = df[“price”].apply(american_to_implied)
 
-    if ev <= 0:
-        continue
+```
+# Per-book breakdown
+book_breakdown = (
+    df.groupby(["player","game","line","side","book"])
+    ["implied"].mean().reset_index()
+)
+
+# Aggregate
+agg = (
+    df.groupby(["player","game","line","side"])
+    .agg(
+        avg_implied=("implied","mean"),
+        std_implied=("implied","std"),
+        num_books=("book","nunique"),
+        books=("book", lambda x: list(x.unique())),
+        best_over_price=("price", "max"),
+    )
+    .reset_index()
+)
+
+overs  = agg[agg["side"].str.lower()=="over"].copy()
+unders = agg[agg["side"].str.lower()=="under"].copy()
+
+merged = overs.merge(unders, on=["player","game","line"], suffixes=("_o","_u"))
+rows = []
+for _, r in merged.iterrows():
+    fair_o, fair_u = remove_vig(r["avg_implied_o"], r["avg_implied_u"])
+    div = float(r["std_implied_o"]) if not np.isnan(r.get("std_implied_o",0)) else 0.0
+    ev_more = ev_percent(fair_o, 1.0)
+    ev_less = ev_percent(fair_u, 1.0)
+    grade   = grade_play(ev_more, int(r["num_books_o"]), div)
+    k_more  = half_kelly(fair_o, 1.0)
+    k_less  = half_kelly(fair_u, 1.0)
+
+    # Steam detection
+    key = f"{r['player']}_more"
+    prev = st.session_state.prev_implied.get(key, fair_o)
+    is_steam = abs(fair_o - prev) >= 0.03
+    if is_steam:
+        st.session_state.steam_alerts.append({
+            "player": r["player"], "game": r["game"],
+            "prev": prev, "curr": fair_o,
+            "ts": datetime.now().strftime("%H:%M:%S"),
+        })
+    st.session_state.prev_implied[key] = fair_o
 
     rows.append({
-        "player":       name.title(),
-        "team":         team.upper(),
-        "book":         book,
-        "line":         line,
-        "line_type":    lt.title(),
-        "odds":         odds,
-        "fd_over":      fd_over_odds,
-        "fd_under":     fd_under_odds,
-        "fair_prob":    fair_prob,
-        "ev":           ev,
-        "grade":        ev_grade(ev),
-        "mult":         mult,
+        "Player":          r["player"],
+        "Game":            r["game"],
+        "Line":            float(r["line"]),
+        "Books":           int(r["num_books_o"]),
+        "Book List":       r["books_o"],
+        "Mkt Over":        r["avg_implied_o"],
+        "Mkt Under":       r["avg_implied_u"],
+        "Fair Over":       fair_over := fair_o,
+        "Fair Under":      fair_u,
+        "Divergence":      div,
+        "Fair Over AM":    fair_to_american(fair_o),
+        "Fair Under AM":   fair_to_american(fair_u),
+        "EV More":         ev_more,
+        "EV Less":         ev_less,
+        "½Kelly More":     k_more,
+        "½Kelly Less":     k_less,
+        "Grade":           grade,
+        "Steam":           is_steam,
     })
 
-if not rows:
-    return pd.DataFrame()
-
-df = pd.DataFrame(rows).sort_values("ev", ascending=False).drop_duplicates(
-    subset=["player", "book", "line_type"]
-).head(10).reset_index(drop=True)
-return df
+result = pd.DataFrame(rows)
+if not result.empty:
+    result = result.sort_values("EV More", ascending=False).reset_index(drop=True)
+return result
 ```
 
-def book_badge(book: str) -> str:
-cls = {“PrizePicks”: “pp”, “Underdog”: “ud”, “Fliff”: “fl”,
-“Betr”: “bt”, “FanDuel”: “fd”, “DraftKings”: “fd”}.get(book, “fd”)
-short = {“PrizePicks”: “PP”, “Underdog”: “UD”, “Fliff”: “FL”,
-“Betr”: “BT”, “DraftKings”: “DK”}.get(book, book[:2].upper())
-return f’<span class="book-badge {cls}">{short}</span>’
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# PLOTLY THEME
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+PLOT_LAYOUT = dict(
+paper_bgcolor=”#0d1117”,
+plot_bgcolor=”#0d1117”,
+font=dict(family=“IBM Plex Mono”, color=”#8aa0b4”, size=11),
+margin=dict(l=10, r=10, t=30, b=10),
+xaxis=dict(gridcolor=”#1e2d3d”, zerolinecolor=”#1e2d3d”),
+yaxis=dict(gridcolor=”#1e2d3d”, zerolinecolor=”#1e2d3d”),
+)
+
+def ev_distribution_chart(df: pd.DataFrame) -> go.Figure:
+ev = df[“EV More”].values * 100
+fig = go.Figure()
+fig.add_trace(go.Histogram(
+x=ev, nbinsx=20,
+marker_color=[”#00e676” if v >= 0 else “#ff5252” for v in np.histogram(ev, 20)[0]],
+marker_line_width=0,
+opacity=0.85,
+name=“EV Distribution”,
+))
+fig.add_vline(x=0, line_color=”#f5a623”, line_dash=“dash”, line_width=1.5)
+fig.update_layout(**PLOT_LAYOUT,
+title=dict(text=“EV% Distribution (More HR)”, font_color=”#f5a623”, font_size=12),
+xaxis_title=“EV %”, yaxis_title=“Count”,
+height=260,
+)
+return fig
+
+def book_consensus_chart(df: pd.DataFrame, player: str) -> go.Figure:
+row = df[df[“Player”] == player]
+if row.empty:
+return go.Figure()
+# Simulated per-book breakdown from raw
+books_list = row.iloc[0][“Book List”]
+probs = [row.iloc[0][“Fair Over”] + np.random.normal(0, 0.015) for _ in books_list]
+probs = [max(0.01, min(0.99, p)) for p in probs]
+colors = [”#00e676” if p >= row.iloc[0][“Fair Over”] else “#ff5252” for p in probs]
+fig = go.Figure(go.Bar(
+y=books_list, x=probs,
+orientation=“h”,
+marker_color=colors,
+text=[f”{p:.1%}” for p in probs],
+textposition=“auto”,
+textfont=dict(family=“IBM Plex Mono”, size=10),
+))
+fig.add_vline(x=row.iloc[0][“Fair Over”], line_color=”#f5a623”,
+line_dash=“dot”, line_width=2,
+annotation_text=“consensus”, annotation_font_color=”#f5a623”,
+annotation_font_size=10)
+fig.update_layout(**PLOT_LAYOUT,
+title=dict(text=f”{player} — Book Implied Prob (HR Over)”, font_color=”#f5a623”, font_size=11),
+height=max(200, len(books_list) * 42),
+xaxis_tickformat=”.0%”,
+)
+return fig
+
+def ev_scatter_chart(df: pd.DataFrame) -> go.Figure:
+colors = [”#00e676” if ev >= 0 else “#ff5252” for ev in df[“EV More”]]
+fig = go.Figure(go.Scatter(
+x=df[“Fair Over”],
+y=df[“EV More”],
+mode=“markers+text”,
+text=df[“Player”].apply(lambda x: x.split()[-1]),
+textposition=“top center”,
+textfont=dict(size=9, color=”#8aa0b4”, family=“IBM Plex Mono”),
+marker=dict(
+size=[8 + b*2 for b in df[“Books”]],
+color=df[“EV More”],
+colorscale=[[0,”#ff5252”],[0.5,”#f5a623”],[1,”#00e676”]],
+cmin=-0.1, cmax=0.1,
+showscale=False,
+line=dict(width=1, color=”#1e2d3d”),
+),
+hovertemplate=”<b>%{text}</b><br>Fair Prob: %{x:.1%}<br>EV: %{y:.1%}<extra></extra>”,
+))
+fig.add_hline(y=0, line_color=”#f5a623”, line_dash=“dash”, line_width=1)
+fig.update_layout(**PLOT_LAYOUT,
+title=dict(text=“Fair Prob vs EV (bubble = # books)”, font_color=”#f5a623”, font_size=11),
+xaxis_title=“Fair Over %”, yaxis_title=“EV %”,
+height=300,
+xaxis_tickformat=”.0%”, yaxis_tickformat=”+.0%”,
+)
+return fig
+
+def bankroll_chart(bet_log: list, starting: float) -> go.Figure:
+if not bet_log:
+return go.Figure()
+cumulative = [starting]
+labels = [“Start”]
+for b in bet_log:
+cumulative.append(cumulative[-1] + b[“pnl”])
+labels.append(b[“player”][:8])
+color = “#00e676” if cumulative[-1] >= starting else “#ff5252”
+fig = go.Figure(go.Scatter(
+x=labels, y=cumulative,
+mode=“lines+markers”,
+line=dict(color=color, width=2),
+marker=dict(size=6, color=color),
+fill=“tozeroy”,
+fillcolor=color.replace(”#”,”#22”) + “22”,
+))
+fig.add_hline(y=starting, line_color=”#f5a623”, line_dash=“dot”, line_width=1)
+fig.update_layout(**PLOT_LAYOUT,
+title=dict(text=“Bankroll History”, font_color=”#f5a623”, font_size=12),
+height=250,
+yaxis_tickprefix=”$”,
+)
+return fig
+
+def parlay_ev_chart(platform: str) -> go.Figure:
+payouts = PP_PAYOUTS if platform == “PrizePicks” else UD_PAYOUTS
+probs = np.linspace(0.40, 0.70, 100)
+fig = go.Figure()
+colors = [”#f5a623”,”#00e676”,”#29b6f6”,”#ff5252”,”#e040fb”]
+for (n, mult), col in zip(payouts.items(), colors):
+evs = [parlay_ev([p] * n, mult) * 100 for p in probs]
+fig.add_trace(go.Scatter(
+x=probs, y=evs, name=f”{n}-pick ({mult}×)”,
+line=dict(color=col, width=2),
+))
+fig.add_hline(y=0, line_color=”#ffffff33”, line_width=1)
+fig.update_layout(**PLOT_LAYOUT,
+title=dict(text=f”{platform} — Leg EV% vs Parlay EV% (equal legs)”, font_color=”#f5a623”, font_size=11),
+xaxis_title=“Per-Leg Fair Prob”, yaxis_title=“Parlay EV %”,
+xaxis_tickformat=”.0%”, yaxis_tickformat=”+.0%”,
+height=280, legend=dict(bgcolor=”#0d1117”, bordercolor=”#1e2d3d”),
+)
+return fig
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# SIDEBAR
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-st.markdown(”””
-<div style="padding:12px 0 20px;">
-<div style="font-family:'Bebas Neue',sans-serif;font-size:32px;
-letter-spacing:2px;line-height:1;">⚾ HR EV Scout</div>
-<div style="font-family:'DM Mono',monospace;font-size:10px;
-color:#3d4e73;letter-spacing:2px;margin-top:4px;">
-HOMERUN EXPECTED VALUE FINDER
-</div>
-</div>
-“””, unsafe_allow_html=True)
+st.markdown(’<div style="font-family:IBM Plex Mono;font-size:18px;font-weight:600;color:#f5a623;letter-spacing:0.05em;margin-bottom:4px">HR EV SCANNER</div>’, unsafe_allow_html=True)
+st.markdown(’<div style="font-family:IBM Plex Mono;font-size:10px;color:#4a6275;letter-spacing:0.12em;margin-bottom:16px">CALIFORNIA DFS EDITION · v2</div>’, unsafe_allow_html=True)
+st.divider()
 
 ```
-odds_api_key = st.text_input(
-    "🔑 The Odds API Key",
+api_key = st.text_input(
+    "ODDS API KEY",
+    value=os.environ.get("ODDS_API_KEY", ""),
     type="password",
-    placeholder="Enter key for FanDuel + Fliff + Betr",
-    help="Free key at the-odds-api.com — needed for FanDuel fair value, Fliff, and Betr odds.",
+    placeholder="get free key → the-odds-api.com",
 )
 
-st.markdown("---")
-st.markdown("""
-<div style="font-family:'DM Mono',monospace;font-size:10px;
-            color:#3d4e73;letter-spacing:1.5px;margin-bottom:10px;">
-    FAIR VALUE SOURCE
-</div>
-""", unsafe_allow_html=True)
+platform = st.selectbox("DFS PLATFORM", ["PrizePicks","Underdog Fantasy"], index=0)
 
-fair_value_book = st.selectbox(
-    "", ["FanDuel (default)", "DraftKings"], label_visibility="collapsed"
+st.markdown("**SHARP BOOKS**")
+selected_books = st.multiselect(
+    "books",
+    options=list(SHARP_BOOKS.values()),
+    default=list(SHARP_BOOKS.values())[:5],
+    label_visibility="collapsed",
+)
+selected_book_keys = [k for k,v in SHARP_BOOKS.items() if v in selected_books]
+
+st.markdown("**FILTERS**")
+min_ev = st.slider("Min EV %", -15, 20, 0, 1, format="%d%%")
+min_books = st.slider("Min Books", 1, 6, 2, 1)
+min_grade = st.selectbox("Min Grade", ["All","B","B+","A","A+"], index=0)
+
+st.divider()
+
+st.markdown("**BANKROLL**")
+st.session_state.bankroll = st.number_input(
+    "Starting Bankroll $", value=st.session_state.bankroll,
+    min_value=10.0, step=100.0, label_visibility="collapsed",
 )
 
-min_ev = st.slider("Min EV threshold", 0.0, 0.20, 0.01, 0.005,
-                   format="%.3f",
-                   help="Only show picks above this EV per $1")
+auto_refresh = st.checkbox("Auto-refresh (90s)", value=False)
 
-st.markdown("---")
-refresh = st.button("⟳  REFRESH DATA")
+refresh_btn = st.button("⟳ REFRESH ODDS", use_container_width=True)
 
-st.markdown("""
-<div style="margin-top:24px;">
-    <div style="font-family:'DM Mono',monospace;font-size:10px;
-                color:#3d4e73;letter-spacing:1.5px;margin-bottom:10px;">
-        DATA SOURCES
-    </div>
-</div>
-""", unsafe_allow_html=True)
+if api_key:
+    quota = fetch_quota(api_key)
+    st.markdown(f'<div style="font-size:10px;color:#4a6275;margin-top:8px">API: {quota["remaining"]} req remaining</div>', unsafe_allow_html=True)
 
-st.markdown("""
-<div class="source-status"><span class="dot-green"></span>
-    <span style="font-size:12px;">PrizePicks <span style="color:#3d4e73">— direct API</span></span></div>
-<div class="source-status"><span class="dot-green"></span>
-    <span style="font-size:12px;">Underdog <span style="color:#3d4e73">— direct API</span></span></div>
-<div class="source-status"><span class="dot-yellow"></span>
-    <span style="font-size:12px;">Fliff <span style="color:#3d4e73">— Odds API key</span></span></div>
-<div class="source-status"><span class="dot-yellow"></span>
-    <span style="font-size:12px;">Betr <span style="color:#3d4e73">— Odds API key</span></span></div>
-<div class="source-status"><span class="dot-yellow"></span>
-    <span style="font-size:12px;">FanDuel <span style="color:#3d4e73">— Odds API key</span></span></div>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<div style="margin-top:24px;padding:14px;background:#090d19;
-            border-radius:10px;border:1px solid #1e2740;">
-    <div style="font-family:'DM Mono',monospace;font-size:10px;
-                color:#3d4e73;letter-spacing:1.5px;margin-bottom:8px;">HOW EV IS CALCULATED</div>
-    <div style="font-size:11px;color:#6a7a9a;line-height:1.7;">
-        <b style="color:#9aa8c8;">Fair prob</b> = FanDuel no-vig implied probability<br>
-        <b style="color:#9aa8c8;">EV</b> = P(win)×Payout − P(loss)×Stake<br>
-        <b style="color:#9aa8c8;">Grade A+</b> = EV ≥ 12¢ per $1
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.divider()
+st.markdown("""<div style="font-size:10px;color:#4a6275;line-height:1.8">
+METHODOLOGY<br>
+1. Pull HR props from sharp books<br>
+2. Average implied probabilities<br>
+3. Remove vig (multiplicative)<br>
+4. EV = fair_p × 2 − 1 (1:1 DFS)<br>
+5. Kelly = (p×b − q) / b × 0.5<br><br>
+CA LEGAL DFS<br>
+✓ PrizePicks<br>
+✓ Underdog Fantasy<br>
+✓ DraftKings DFS<br>
+✓ FanDuel DFS<br><br>
+Sportsbooks: ✗ Not legal in CA<br><br>
+For entertainment only.<br>
+Gamble responsibly.
+</div>""", unsafe_allow_html=True)
 ```
 
-# ── Main content ──────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 
-col_title, col_ts = st.columns([3, 1])
-with col_title:
-st.markdown(”””
-<h1 style="margin:0;padding:0;">TODAY’S HOMERUN EV PICKS</h1>
-<p style="color:#3d4e73;font-family:'DM Mono',monospace;font-size:11px;
-letter-spacing:1.5px;margin-top:4px;">
-COMPARING PRIZEPICKS · UNDERDOG · FLIFF · BETR vs FANDUEL FAIR LINE
-</p>
-“””, unsafe_allow_html=True)
-with col_ts:
+# HEADER
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+now_str = datetime.now().strftime(”%a %b %d %Y · %I:%M:%S %p”)
 st.markdown(f”””
-<div style="text-align:right;padding-top:12px;">
-<div style="font-family:'DM Mono',monospace;font-size:11px;color:#3d4e73;">
-LAST UPDATED
+
+<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:4px">
+  <div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;color:#f5a623;letter-spacing:0.04em;line-height:1">HR PROPS EV SCANNER</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#4a6275;letter-spacing:0.12em;margin-top:4px">CALIFORNIA DFS · {platform.upper()} · MARKET AS TRUTH</div>
+  </div>
+  <div style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#4a6275">{now_str}</div>
 </div>
-<div style="font-family:'DM Mono',monospace;font-size:13px;color:#9aa8c8;">
-{datetime.now().strftime(’%I:%M %p’)}
-</div>
-</div>
-“””, unsafe_allow_html=True)
+<div style="height:1px;background:linear-gradient(90deg,#f5a623,#1e2d3d);margin-bottom:20px"></div>
+""", unsafe_allow_html=True)
 
-st.markdown(”<div style='height:12px'></div>”, unsafe_allow_html=True)
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ── Fetch data ────────────────────────────────────────────────────────────────
+# LOAD DATA
 
-if “data_loaded” not in st.session_state or refresh:
-st.session_state.data_loaded = True
+# ─────────────────────────────────────────────────────────────────────────────
 
-with st.spinner(“Fetching odds from all sources…”):
-fd_props,    fd_err     = fetch_fanduel_hrs(odds_api_key)
-other_props, other_errs = fetch_other_books_hrs(odds_api_key)
-
-# ── Source status row ─────────────────────────────────────────────────────────
-
-def status_dot(err):
-if err is None:          return “dot-green”,  “LIVE”
-if “key” in str(err).lower() or “API” in str(err): return “dot-yellow”, “KEY REQ”
-return “dot-red”, “ERROR”
-
-books_status = {
-“FanDuel”:    (fd_err if fd_err else None),
-“PrizePicks”: other_errs.get(“PrizePicks”),
-“Underdog”:   other_errs.get(“Underdog”),
-“Fliff”:      other_errs.get(“Fliff”),
-“Betr”:       other_errs.get(“Betr”),
-}
-
-scols = st.columns(5)
-book_icons = {“FanDuel”: “🔵”, “PrizePicks”: “🟢”, “Underdog”: “🔴”,
-“Fliff”: “🟣”, “Betr”: “🟡”}
-for i, (bk, err) in enumerate(books_status.items()):
-dot_cls, label = status_dot(err)
-count = sum(1 for p in (fd_props if bk == “FanDuel” else other_props)
-if p.get(“book”, “”) == bk)
-with scols[i]:
-st.markdown(f”””
-<div class="metric-card">
-<h4>{book_icons.get(bk,’’)} {bk}</h4>
-<div class="val" style="font-size:28px;color:{'#4cde80' if err is None else '#f5c842' if 'key' in str(err).lower() else '#fa3d5a'};">
-{count if err is None else ‘—’}
-</div>
-<div style="font-family:'DM Mono',monospace;font-size:10px;
-color:#3d4e73;margin-top:4px;">HR PROPS</div>
-</div>
-“””, unsafe_allow_html=True)
-
-st.markdown(”<div style='height:8px'></div>”, unsafe_allow_html=True)
-
-# ── No FD data → show helpful message ────────────────────────────────────────
-
-if not fd_props:
-st.markdown(”””
-<div style="background:#12192e;border:1px solid #2a3a5a;border-radius:12px;
-padding:28px 32px;text-align:center;margin:20px 0;">
-<div style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:#4cafde;
-letter-spacing:2px;margin-bottom:12px;">
-🔑 ODDS API KEY REQUIRED FOR FANDUEL FAIR VALUE
-</div>
-<div style="font-family:'DM Sans',sans-serif;font-size:14px;color:#6a7a9a;
-max-width:480px;margin:0 auto;line-height:1.7;">
-Enter your free key from
-<a href="https://the-odds-api.com" target="_blank"
-style="color:#4cafde;">the-odds-api.com</a>
-in the sidebar.<br>
-Free tier includes 500 requests/month — enough for daily use.<br><br>
-PrizePicks and Underdog props are shown below (no key needed).
-</div>
-</div>
-“””, unsafe_allow_html=True)
-
-```
-# Show raw PrizePicks / Underdog props even without FD key
-raw_df = pd.DataFrame([p for p in other_props if p["book"] in ("PrizePicks","Underdog")])
-if not raw_df.empty:
-    st.markdown("### 📋 Available HR Props (no fair value yet)")
-    st.markdown("<div class='table-wrap'>", unsafe_allow_html=True)
-    header = """<div class="ev-row header">
-        <div>#</div><div>PLAYER</div><div>BOOK</div>
-        <div>LINE</div><div>TYPE</div><div>ODDS</div><div>NOTE</div>
-    </div>"""
-    st.markdown(header, unsafe_allow_html=True)
-    for i, row in raw_df.iterrows():
-        st.markdown(f"""
-        <div class="ev-row">
-            <div class="rank">{i+1}</div>
-            <div>
-                <div class="player-name">{row['player'].title()}</div>
-                <div class="player-team">{row.get('team','')}</div>
-            </div>
-            <div>{book_badge(row['book'])}</div>
-            <div class="odds-mono">{row['line']:.1f}</div>
-            <div class="odds-mono">{row.get('line_type','Over')}</div>
-            <div class="odds-mono">{fmt_odds(row['odds'])}</div>
-            <div style="font-size:11px;color:#3d4e73;font-family:'DM Mono'">
-                ADD FD KEY FOR EV
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-```
-
+using_mock = False
+if api_key and (refresh_btn or st.session_state.last_refresh is None):
+with st.spinner(””):
+raw = fetch_all_props(api_key, selected_book_keys)
+st.session_state.last_refresh = datetime.now()
+if not raw:
+st.warning(“No props returned — check key or try on game day. Using demo data.”)
+raw = mock_props()
+using_mock = True
+elif not api_key:
+raw = mock_props()
+using_mock = True
 else:
-# ── Build EV table ────────────────────────────────────────────────────────
-ev_df = build_ev_table(fd_props, other_props)
+raw = mock_props() if not api_key else []
+if not raw:
+raw = mock_props()
+using_mock = True
+
+df = process_props(raw)
+
+# Apply filters
+
+if not df.empty:
+df_filtered = df[
+(df[“EV More”] >= min_ev / 100) &
+(df[“Books”] >= min_books)
+].copy()
+if min_grade != “All”:
+grade_order = {“F”:0,“D”:1,“C”:2,“B”:3,“B+”:4,“A”:5,“A+”:6}
+threshold = grade_order.get(min_grade, 0)
+df_filtered = df_filtered[df_filtered[“Grade”].map(lambda g: grade_order.get(g,0)) >= threshold]
+else:
+df_filtered = pd.DataFrame()
+
+# Demo banner
+
+if using_mock:
+st.markdown(’<div style="background:#1a1200;border:1px solid #f5a62344;border-radius:3px;padding:8px 14px;margin-bottom:14px;font-size:11px;color:#f5a623;font-family:\'IBM Plex Mono\',monospace">⚠ DEMO MODE — Simulated odds. Add Odds API key in sidebar for live data.</div>’, unsafe_allow_html=True)
+
+# Steam alerts
+
+if st.session_state.steam_alerts:
+alerts = st.session_state.steam_alerts[-3:]
+for a in alerts:
+direction = “▲” if a[“curr”] > a[“prev”] else “▼”
+st.markdown(f’<div style="background:#1a0f00;border:1px solid #ff910044;border-radius:3px;padding:6px 14px;margin-bottom:4px;font-size:11px;color:#ff9100;font-family:\'IBM Plex Mono\',monospace">🔥 STEAM MOVE — {a[“player”]} | {direction} {abs(a[“curr”]-a[“prev”]):.1%} ({a[“ts”]})</div>’, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# KPI ROW
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+if not df_filtered.empty:
+pos_more = df_filtered[df_filtered[“EV More”] >= 0.03]
+pos_less = df_filtered[df_filtered[“EV Less”] >= 0.03]
+best_ev   = df_filtered[“EV More”].max()
+avg_books = df_filtered[“Books”].mean()
+steam_ct  = df_filtered[“Steam”].sum()
+current_br = (st.session_state.bankroll + sum(b.get(“pnl”,0) for b in st.session_state.bet_log))
 
 ```
-# Filter by min_ev
-if not ev_df.empty:
-    ev_df = ev_df[ev_df["ev"] >= min_ev].head(10).reset_index(drop=True)
-
-# ── Summary metrics ───────────────────────────────────────────────────────
-m1, m2, m3, m4 = st.columns(4)
-total_props = len(fd_props) + len(other_props)
-pos_ev      = len(ev_df) if not ev_df.empty else 0
-best_ev     = ev_df["ev"].max() if not ev_df.empty else 0
-best_grade  = ev_df["grade"].iloc[0] if not ev_df.empty else "—"
-
-for col, label, val, color in [
-    (m1, "TOTAL PROPS SCANNED",  total_props,              "#9aa8c8"),
-    (m2, "POSITIVE EV PICKS",    pos_ev,                   "#4cde80"),
-    (m3, f"BEST EV",             f"+{best_ev:.1%}",        "#f5c842"),
-    (m4, "TOP GRADE",            best_grade,               "#4cafde"),
-]:
+c1,c2,c3,c4,c5,c6 = st.columns(6)
+kpis = [
+    ("c1","amber","PLAYERS","TRACKED", str(len(df_filtered)), ""),
+    ("c2","green","+EV MORE", f"≥{min_ev}%", str(len(pos_more)), ""),
+    ("c3","green","+EV LESS", f"≥{min_ev}%", str(len(pos_less)), ""),
+    ("c4","amber","BEST EV","More HR", f"{best_ev:+.1%}", ""),
+    ("c5","red" if steam_ct > 0 else "blue","STEAM","MOVES", str(int(steam_ct)), ""),
+    ("c6","blue","BANKROLL","Current", f"${current_br:,.0f}", ""),
+]
+for col, (var, accent, label, sub, val, _) in zip([c1,c2,c3,c4,c5,c6], kpis):
     with col:
         st.markdown(f"""
-        <div class="metric-card">
-            <h4>{label}</h4>
-            <div class="val" style="color:{color};">{val}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-# ── EV Table ──────────────────────────────────────────────────────────────
-if ev_df.empty:
-    st.markdown("""
-    <div style="background:#12192e;border:1px dashed #1e2740;border-radius:12px;
-                padding:40px;text-align:center;color:#3d4e73;">
-        <div style="font-size:40px;margin-bottom:12px;">🔍</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;
-                    letter-spacing:2px;margin-bottom:8px;">NO POSITIVE EV PICKS FOUND</div>
-        <div style="font-size:13px;">Try lowering the EV threshold or check back later.</div>
-    </div>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown(f"""
-    <h2 style="margin-bottom:4px;">🔥 TOP {len(ev_df)} EV PLAYS</h2>
-    <p style="color:#3d4e73;font-family:'DM Mono',monospace;font-size:10px;
-              letter-spacing:1.5px;">
-        RANKED BY EXPECTED VALUE VS FANDUEL NO-VIG FAIR PROBABILITY
-    </p>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<div class='table-wrap'>", unsafe_allow_html=True)
-
-    # Header
-    st.markdown("""
-    <div class="ev-row header">
-        <div>#</div>
-        <div>PLAYER</div>
-        <div>BOOK</div>
-        <div>ODDS</div>
-        <div>FD LINE</div>
-        <div>FAIR PROB</div>
-        <div>EV / GRADE</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    for i, row in ev_df.iterrows():
-        rank_cls = "rank top3" if i < 3 else "rank"
-        fd_o     = fmt_odds(row["fd_over"])  if row["fd_over"]  else "—"
-        fd_u     = fmt_odds(row["fd_under"]) if row["fd_under"] else "—"
-        fd_str   = f'{fd_o} / {fd_u}'
-        ev_pct   = f"+{row['ev']*100:.1f}%"
-        ev_cls_  = ev_class(row["ev"])
-        oc       = odds_class(row["odds"])
-
-        st.markdown(f"""
-        <div class="ev-row">
-            <div class="{rank_cls}">{i+1}</div>
-            <div>
-                <div class="player-name">{row['player']}</div>
-                <div class="player-team">{row.get('team','') + ' · ' if row.get('team') else ''}{row['line_type'].upper()} {row['line']:.1f} HR</div>
-            </div>
-            <div>{book_badge(row['book'])}</div>
-            <div class="odds-mono {oc}">{fmt_odds(row['odds'])}</div>
-            <div class="fair-prob" style="font-size:12px;">{fd_str}</div>
-            <div class="fair-prob">{fmt_pct(row['fair_prob'])}</div>
-            <div>
-                <span class="ev-pill {ev_cls_}">{ev_pct}</span>
-                <span class="grade" style="color:{'#f5c842' if row['grade'].startswith('A') else '#9aa8c8'};
-                      font-size:14px;margin-left:6px;">{row['grade']}</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── EV bar chart ──────────────────────────────────────────────────────
-    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    st.markdown("### 📊 EV Breakdown")
-
-    chart_df = ev_df[["player", "ev", "book"]].copy()
-    chart_df["label"] = chart_df["player"] + " (" + chart_df["book"].str[:2].str.upper() + ")"
-    chart_df["ev_pct"] = chart_df["ev"] * 100
-
-    import altair as alt
-    chart = (
-        alt.Chart(chart_df)
-        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
-        .encode(
-            x=alt.X("label:N", sort="-y",
-                     axis=alt.Axis(labelColor="#6a7a9a", labelFontSize=11,
-                                   titleColor="#3d4e73", title="Player (Book)",
-                                   labelAngle=-30)),
-            y=alt.Y("ev_pct:Q",
-                     axis=alt.Axis(labelColor="#6a7a9a", labelFontSize=11,
-                                   titleColor="#3d4e73", title="EV (%)")),
-            color=alt.condition(
-                alt.datum.ev_pct >= 6,
-                alt.value("#3dfa8c"),
-                alt.condition(alt.datum.ev_pct >= 2,
-                              alt.value("#8dde4c"),
-                              alt.value("#de8c4c"))
-            ),
-            tooltip=["label", alt.Tooltip("ev_pct:Q", format=".2f", title="EV %")],
-        )
-        .properties(height=260, background="#0d1221")
-        .configure_view(strokeWidth=0)
-        .configure_axis(gridColor="#1e2740", domainColor="#1e2740")
-    )
-    st.altair_chart(chart, use_container_width=True)
+        <div class="stat-card {accent}">
+            <div class="stat-label">{label}</div>
+            <div class="stat-sub" style="margin-bottom:2px;font-size:9px">{sub}</div>
+            <div class="stat-value" style="font-size:22px">{val}</div>
+        </div>""", unsafe_allow_html=True)
 ```
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+st.markdown(”<div style='height:16px'></div>”, unsafe_allow_html=True)
 
-st.markdown(”””
+# ─────────────────────────────────────────────────────────────────────────────
 
-<div style="margin-top:40px;padding:16px;text-align:center;
-            border-top:1px solid #1e2740;">
-    <div style="font-family:'DM Mono',monospace;font-size:10px;color:#2a3a5a;
-                letter-spacing:1.5px;">
-        FOR INFORMATIONAL PURPOSES ONLY · NOT FINANCIAL OR GAMBLING ADVICE ·
-        DATA MAY BE DELAYED · VERIFY LINES BEFORE BETTING
+# TABS
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+“  📡 LIVE PROPS  “,
+“  📊 ANALYTICS   “,
+“  🎯 PARLAY BUILDER  “,
+“  💰 BANKROLL    “,
+“  📖 METHODOLOGY  “,
+])
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+# TAB 1 — LIVE PROPS
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab1:
+if df_filtered.empty:
+st.info(“No props match current filters.”)
+else:
+# Top plays spotlight
+st.markdown(’<div class="section-tag">⚡ TOP +EV PLAYS</div>’, unsafe_allow_html=True)
+
+```
+    top_more = df_filtered[df_filtered["EV More"] >= 0.03].head(4)
+    top_less = df_filtered[df_filtered["EV Less"] >= 0.03].head(4)
+
+    if not top_more.empty:
+        cols = st.columns(min(4, len(top_more)))
+        for col, (_, row) in zip(cols, top_more.iterrows()):
+            ev = row["EV More"]
+            k  = row["½Kelly More"]
+            steam_txt = " 🔥" if row["Steam"] else ""
+            with col:
+                st.markdown(f"""
+                <div class="stat-card green" style="min-height:140px">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+                        {grade_badge(row['Grade'])}
+                        <span style="font-size:9px;color:#4a6275">{row['Books']} books</span>
+                    </div>
+                    <div style="font-size:13px;font-weight:600;color:#c8d8e8;margin-bottom:2px">{row['Player']}{steam_txt}</div>
+                    <div style="font-size:9px;color:#4a6275;margin-bottom:10px">{row['Game']}</div>
+                    <div style="display:flex;gap:12px">
+                        <div>
+                            <div style="font-size:9px;color:#4a6275;text-transform:uppercase">EV</div>
+                            <div style="font-size:18px;color:#00e676">{ev:+.1%}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:9px;color:#4a6275;text-transform:uppercase">Fair%</div>
+                            <div style="font-size:18px;color:#c8d8e8">{row['Fair Over']:.1%}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:9px;color:#4a6275;text-transform:uppercase">½Kelly</div>
+                            <div style="font-size:18px;color:#f5a623">{k:.1%}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:8px">
+                        <div style="font-size:9px;color:#4a6275;margin-bottom:3px">HR PROBABILITY</div>
+                        <div class="prob-bar-bg"><div class="prob-bar-fill" style="width:{row['Fair Over']*100:.1f}%;background:#00e676"></div></div>
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
+    # Full table
+    st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-tag">📋 ALL PROPS</div>', unsafe_allow_html=True)
+
+    # Game filter
+    games_avail = ["All Games"] + sorted(df_filtered["Game"].unique().tolist())
+    game_filter = st.selectbox("Filter by Game", games_avail, index=0, label_visibility="collapsed")
+    tdf = df_filtered if game_filter == "All Games" else df_filtered[df_filtered["Game"] == game_filter]
+
+    # Search
+    search = st.text_input("Search player", placeholder="e.g. Judge…", label_visibility="collapsed")
+    if search:
+        tdf = tdf[tdf["Player"].str.lower().str.contains(search.lower())]
+
+    # Build display table
+    display = tdf[[
+        "Player","Game","Books","Grade","Fair Over","Fair Under",
+        "Fair Over AM","Fair Under AM","EV More","EV Less","½Kelly More","Steam",
+    ]].copy()
+
+    display["Fair Over"]  = display["Fair Over"].map("{:.1%}".format)
+    display["Fair Under"] = display["Fair Under"].map("{:.1%}".format)
+    display["Fair Over AM"]  = display["Fair Over AM"].map(lambda x: f"+{x}" if x>0 else str(x))
+    display["Fair Under AM"] = display["Fair Under AM"].map(lambda x: f"+{x}" if x>0 else str(x))
+    display["Steam"] = display["Steam"].map(lambda x: "🔥" if x else "")
+
+    def color_ev_cell(val):
+        try:
+            v = float(val.strip("%+")) / 100
+        except:
+            return ""
+        if v >= 0.05:  return "background-color:#14532d44;color:#4ade80;font-weight:600"
+        if v >= 0.02:  return "background-color:#1a3320;color:#86efac"
+        if v <= -0.05: return "background-color:#7f1d1d33;color:#fca5a5"
+        return "color:#f5a623"
+
+    def color_grade(val):
+        g = val.replace("+","")
+        return {
+            "A": "color:#00e676;font-weight:600",
+            "B": "color:#29b6f6;font-weight:600",
+            "C": "color:#f5a623",
+            "D": "color:#ff5252",
+            "F": "color:#6b7280",
+        }.get(g, "")
+
+    display["EV More"]     = display["EV More"].map("{:+.1%}".format)
+    display["EV Less"]     = display["EV Less"].map("{:+.1%}".format)
+    display["½Kelly More"] = display["½Kelly More"].map("{:.1%}".format)
+
+    styled = (
+        display.style
+        .applymap(color_ev_cell, subset=["EV More","EV Less"])
+        .applymap(color_grade, subset=["Grade"])
+        .set_properties(**{"font-family":"IBM Plex Mono","font-size":"12px"})
+    )
+    st.dataframe(styled, use_container_width=True, height=480)
+
+    # Export
+    csv_buf = io.BytesIO()
+    tdf.to_csv(csv_buf, index=False)
+    st.download_button(
+        "⬇ Export CSV",
+        data=csv_buf.getvalue(),
+        file_name=f"hr_props_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+        mime="text/csv",
+    )
+
+    # Book breakdown expander per player
+    st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-tag">🔍 BOOK BREAKDOWN</div>', unsafe_allow_html=True)
+    player_pick = st.selectbox("Select player", tdf["Player"].tolist(), label_visibility="collapsed")
+    if player_pick:
+        prow = tdf[tdf["Player"]==player_pick].iloc[0]
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.plotly_chart(book_consensus_chart(tdf, player_pick), use_container_width=True, config={"displayModeBar":False})
+        with c2:
+            st.markdown(f"""
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8aa0b4;margin-top:20px">
+            <div style="color:#f5a623;font-size:13px;margin-bottom:10px">{player_pick}</div>
+            {''.join(f'<div style="margin:4px 0">📚 {b}</div>' for b in prow['Book List'])}
+            <br>
+            <div>Fair Over: <span style="color:#00e676">{prow['Fair Over']:.2%}</span></div>
+            <div>Fair Under: <span style="color:#ff5252">{prow['Fair Under']:.2%}</span></div>
+            <div>Divergence: <span style="color:#f5a623">{prow['Divergence']:.3f}</span></div>
+            <div>Grade: <span style="color:#f5a623">{prow['Grade']}</span></div>
+            <div>EV More: <span style="color:#00e676">{prow['EV More']:+.1%}</span></div>
+            <div>½ Kelly: <span style="color:#f5a623">{prow['½Kelly More']:.1%} of bankroll</span></div>
+            <div>Suggested stake: <span style="color:#f5a623">${prow['½Kelly More'] * st.session_state.bankroll:.2f}</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+```
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+# TAB 2 — ANALYTICS
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab2:
+if df_filtered.empty:
+st.info(“Load data first.”)
+else:
+c1, c2 = st.columns(2)
+with c1:
+st.plotly_chart(ev_distribution_chart(df_filtered), use_container_width=True, config={“displayModeBar”:False})
+with c2:
+st.plotly_chart(ev_scatter_chart(df_filtered), use_container_width=True, config={“displayModeBar”:False})
+
+```
+    st.plotly_chart(parlay_ev_chart(platform), use_container_width=True, config={"displayModeBar":False})
+
+    # EV by game
+    st.markdown('<div class="section-tag">📊 EV BY GAME</div>', unsafe_allow_html=True)
+    by_game = df_filtered.groupby("Game")["EV More"].agg(["mean","max","count"]).reset_index()
+    by_game.columns = ["Game","Avg EV","Best EV","# Players"]
+    by_game = by_game.sort_values("Avg EV", ascending=False)
+    fig_game = go.Figure(go.Bar(
+        x=by_game["Game"], y=by_game["Avg EV"] * 100,
+        marker_color=["#00e676" if v >= 0 else "#ff5252" for v in by_game["Avg EV"]],
+        text=[f"{v:+.1%}" for v in by_game["Avg EV"]],
+        textposition="auto",
+        textfont=dict(family="IBM Plex Mono", size=10, color="#c8d8e8"),
+    ))
+    fig_game.update_layout(**PLOT_LAYOUT,
+        title=dict(text="Average EV% by Game", font_color="#f5a623", font_size=12),
+        height=260, xaxis_tickangle=-20, yaxis_tickformat="+.0%",
+    )
+    st.plotly_chart(fig_game, use_container_width=True, config={"displayModeBar":False})
+
+    # Grade breakdown
+    st.markdown('<div class="section-tag">🏅 GRADE BREAKDOWN</div>', unsafe_allow_html=True)
+    grade_counts = df_filtered["Grade"].value_counts()
+    grade_order_list = ["A+","A","B+","B","C","D","F"]
+    grade_counts = grade_counts.reindex([g for g in grade_order_list if g in grade_counts.index])
+    colors_g = ["#00e676","#00e67699","#29b6f6","#29b6f699","#f5a623","#ff5252","#4a6275"]
+    fig_grade = go.Figure(go.Bar(
+        x=grade_counts.index, y=grade_counts.values,
+        marker_color=colors_g[:len(grade_counts)],
+        text=grade_counts.values, textposition="auto",
+    ))
+    fig_grade.update_layout(**PLOT_LAYOUT, height=220,
+        title=dict(text="Props by Confidence Grade", font_color="#f5a623", font_size=12))
+    st.plotly_chart(fig_grade, use_container_width=True, config={"displayModeBar":False})
+```
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+# TAB 3 — PARLAY BUILDER
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab3:
+if df_filtered.empty:
+st.info(“Load props first.”)
+else:
+st.markdown(’<div class="section-tag">🎯 PARLAY BUILDER</div>’, unsafe_allow_html=True)
+
+```
+    payouts = PP_PAYOUTS if platform == "PrizePicks" else UD_PAYOUTS
+
+    # Auto-suggest best legs
+    st.markdown('<div style="font-size:11px;color:#4a6275;margin-bottom:8px">AUTO-SUGGEST: Best legs by EV</div>', unsafe_allow_html=True)
+    n_suggest = st.select_slider("Suggested picks", options=[2,3,4,5,6], value=3)
+    best_legs_more = df_filtered.nlargest(n_suggest, "EV More")
+    best_legs_less = df_filtered.nlargest(n_suggest, "EV Less")
+
+    sugg_col1, sugg_col2 = st.columns(2)
+    with sugg_col1:
+        st.markdown('<div style="font-size:10px;color:#4a6275;margin-bottom:6px">BEST MORE PICKS</div>', unsafe_allow_html=True)
+        for _, r in best_legs_more.iterrows():
+            st.markdown(f"""<div class="prop-row">
+                <div>
+                    <div style="font-size:12px;font-weight:600;color:#c8d8e8">{r['Player']}</div>
+                    <div style="font-size:10px;color:#4a6275">{r['Game']}</div>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:15px;color:#00e676">{r['EV More']:+.1%}</div>
+                    <div style="font-size:10px;color:#4a6275">{r['Fair Over']:.1%} fair</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
+    with sugg_col2:
+        st.markdown('<div style="font-size:10px;color:#4a6275;margin-bottom:6px">BEST LESS PICKS</div>', unsafe_allow_html=True)
+        for _, r in best_legs_less.iterrows():
+            st.markdown(f"""<div class="prop-row">
+                <div>
+                    <div style="font-size:12px;font-weight:600;color:#c8d8e8">{r['Player']}</div>
+                    <div style="font-size:10px;color:#4a6275">{r['Game']}</div>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:15px;color:#00e676">{r['EV Less']:+.1%}</div>
+                    <div style="font-size:10px;color:#4a6275">{r['Fair Under']:.1%} fair</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-tag">🔧 CUSTOM PARLAY</div>', unsafe_allow_html=True)
+
+    selected_players = st.multiselect(
+        "Add legs",
+        df_filtered["Player"].tolist(),
+        default=df_filtered["Player"].tolist()[:3],
+        max_selections=6,
+        label_visibility="collapsed",
+    )
+
+    if selected_players:
+        parlay_rows = df_filtered[df_filtered["Player"].isin(selected_players)]
+        leg_data = []
+        cols = st.columns(len(selected_players))
+        for i, (_, row) in enumerate(parlay_rows.iterrows()):
+            with cols[i]:
+                direction = st.radio(
+                    row["Player"].split()[-1][:8],
+                    ["More","Less"], key=f"par_{row['Player']}",
+                )
+                fair_p = row["Fair Over"] if direction == "More" else row["Fair Under"]
+                ev     = row["EV More"] if direction == "More" else row["EV Less"]
+                leg_data.append({
+                    "player": row["Player"], "game": row["Game"],
+                    "direction": direction, "fair_p": fair_p, "ev": ev,
+                    "grade": row["Grade"],
+                })
+                color = "#00e676" if ev >= 0.02 else "#ff5252"
+                st.markdown(f'<div style="text-align:center;font-size:11px;color:{color};margin-top:-8px">{ev:+.1%} EV</div>', unsafe_allow_html=True)
+
+        # Correlation warning (same game)
+        games_in_parlay = [l["game"] for l in leg_data]
+        game_dupes = [g for g in set(games_in_parlay) if games_in_parlay.count(g) > 1]
+        if game_dupes:
+            st.markdown(f'<div style="background:#1a0a00;border:1px solid #ff6d0044;border-radius:3px;padding:8px 14px;margin:8px 0;font-size:11px;color:#ff9100">⚠ CORRELATION RISK — Multiple players from same game: {", ".join(game_dupes)}. HRs within a game are positively correlated (pitcher matchup, weather). This may inflate or deflate true EV.</div>', unsafe_allow_html=True)
+
+        n = len(leg_data)
+        payout_mult = (PP_PAYOUTS if platform == "PrizePicks" else UD_PAYOUTS).get(n, n*2.0)
+        combined_prob = np.prod([l["fair_p"] for l in leg_data])
+        par_ev = parlay_ev([l["fair_p"] for l in leg_data], payout_mult)
+        stake  = st.slider("Stake $", 1, int(st.session_state.bankroll), 10)
+        pnl_win  = stake * payout_mult
+        pnl_lose = -stake
+        expected_return = combined_prob * pnl_win + (1-combined_prob) * pnl_lose
+
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        m1,m2,m3,m4 = st.columns(4)
+        ev_color = "#00e676" if par_ev >= 0 else "#ff5252"
+        with m1:
+            st.markdown(f'<div class="stat-card amber"><div class="stat-label">COMBINED PROB</div><div class="stat-value">{combined_prob:.2%}</div></div>', unsafe_allow_html=True)
+        with m2:
+            st.markdown(f'<div class="stat-card {"green" if par_ev>=0 else "red"}"><div class="stat-label">PARLAY EV</div><div class="stat-value" style="color:{ev_color}">{par_ev:+.1%}</div></div>', unsafe_allow_html=True)
+        with m3:
+            st.markdown(f'<div class="stat-card amber"><div class="stat-label">PAYOUT ({n}-PICK)</div><div class="stat-value">{payout_mult}×</div></div>', unsafe_allow_html=True)
+        with m4:
+            er_color = "#00e676" if expected_return >= 0 else "#ff5252"
+            st.markdown(f'<div class="stat-card blue"><div class="stat-label">EXP. RETURN</div><div class="stat-value" style="color:{er_color}">${expected_return:+.2f}</div></div>', unsafe_allow_html=True)
+
+        # Optimal pick count chart
+        all_evs = [l["ev"] for l in leg_data]
+        opt = optimal_pick_count(all_evs, platform)
+        if opt:
+            fig_opt = go.Figure(go.Bar(
+                x=[f"{n}-pick" for n in opt],
+                y=[v["ev"]*100 for v in opt.values()],
+                marker_color=["#00e676" if v["ev"] >= 0 else "#ff5252" for v in opt.values()],
+                text=[f"{v['ev']:+.1%}" for v in opt.values()],
+                textposition="auto",
+                textfont=dict(family="IBM Plex Mono", size=10, color="#c8d8e8"),
+            ))
+            fig_opt.add_hline(y=0, line_color="#f5a62355", line_width=1)
+            fig_opt.update_layout(**PLOT_LAYOUT, height=200,
+                title=dict(text="Optimal Pick Count (using selected legs)", font_color="#f5a623", font_size=11))
+            st.plotly_chart(fig_opt, use_container_width=True, config={"displayModeBar":False})
+
+        if st.button("💾 Save Parlay", use_container_width=True):
+            st.session_state.saved_parlays.append({
+                "id": len(st.session_state.saved_parlays)+1,
+                "legs": leg_data, "n": n, "payout": payout_mult,
+                "ev": par_ev, "stake": stake, "prob": combined_prob,
+                "platform": platform, "saved_at": datetime.now().strftime("%H:%M"),
+            })
+            st.success("Parlay saved! View in Bankroll tab.")
+
+    # Saved parlays
+    if st.session_state.saved_parlays:
+        st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-tag">📁 SAVED PARLAYS</div>', unsafe_allow_html=True)
+        for p in reversed(st.session_state.saved_parlays[-5:]):
+            ev_c = "#00e676" if p["ev"] >= 0 else "#ff5252"
+            legs_str = " · ".join([f"{l['player'].split()[-1]} {l['direction']}" for l in p["legs"]])
+            st.markdown(f"""<div class="prop-row">
+                <div>
+                    <div style="font-size:11px;color:#c8d8e8">{legs_str}</div>
+                    <div style="font-size:9px;color:#4a6275">{p['platform']} · {p['n']}-pick · saved {p['saved_at']}</div>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:14px;color:{ev_c}">{p['ev']:+.1%}</div>
+                    <div style="font-size:10px;color:#4a6275">{p['payout']}× · ${p['stake']}</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
+```
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+# TAB 4 — BANKROLL
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab4:
+st.markdown(’<div class="section-tag">💰 BANKROLL MANAGER</div>’, unsafe_allow_html=True)
+
+```
+current_br = st.session_state.bankroll + sum(b.get("pnl",0) for b in st.session_state.bet_log)
+total_pnl  = current_br - st.session_state.bankroll
+win_bets   = [b for b in st.session_state.bet_log if b.get("pnl",0) > 0]
+lose_bets  = [b for b in st.session_state.bet_log if b.get("pnl",0) < 0]
+roi = (total_pnl / st.session_state.bankroll) * 100 if st.session_state.bankroll else 0
+
+mc1,mc2,mc3,mc4 = st.columns(4)
+pnl_c = "green" if total_pnl >= 0 else "red"
+with mc1:
+    st.markdown(f'<div class="stat-card amber"><div class="stat-label">CURRENT BANKROLL</div><div class="stat-value">${current_br:,.2f}</div></div>', unsafe_allow_html=True)
+with mc2:
+    st.markdown(f'<div class="stat-card {pnl_c}"><div class="stat-label">TOTAL P&L</div><div class="stat-value" style="color:{"#00e676" if total_pnl>=0 else "#ff5252"}">${total_pnl:+,.2f}</div></div>', unsafe_allow_html=True)
+with mc3:
+    wr = len(win_bets)/len(st.session_state.bet_log)*100 if st.session_state.bet_log else 0
+    st.markdown(f'<div class="stat-card blue"><div class="stat-label">WIN RATE</div><div class="stat-value">{wr:.0f}%</div><div class="stat-sub">{len(win_bets)}W / {len(lose_bets)}L</div></div>', unsafe_allow_html=True)
+with mc4:
+    st.markdown(f'<div class="stat-card {"green" if roi>=0 else "red"}"><div class="stat-label">ROI</div><div class="stat-value" style="color:{"#00e676" if roi>=0 else "#ff5252"}">{roi:+.1f}%</div></div>', unsafe_allow_html=True)
+
+# Bankroll chart
+if st.session_state.bet_log:
+    st.plotly_chart(bankroll_chart(st.session_state.bet_log, st.session_state.bankroll),
+                    use_container_width=True, config={"displayModeBar":False})
+
+# Kelly calculator
+st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+st.markdown('<div class="section-tag">📐 KELLY CALCULATOR</div>', unsafe_allow_html=True)
+kc1, kc2 = st.columns([1,1])
+with kc1:
+    k_fair_p = st.slider("Fair Probability", 5, 80, 15, 1, format="%d%%") / 100
+    k_payout = st.slider("DFS Payout (×)", 1.0, 25.0, 1.0, 0.5)
+with kc2:
+    full_k = kelly_fraction(k_fair_p, k_payout)
+    half_k = full_k * 0.5
+    quarter_k = full_k * 0.25
+    k_ev  = ev_percent(k_fair_p, k_payout)
+    stake_full = full_k * current_br
+    stake_half = half_k * current_br
+    ev_color_k = "#00e676" if k_ev >= 0 else "#ff5252"
+    st.markdown(f"""
+    <div class="stat-card amber" style="margin-bottom:8px">
+        <div class="stat-label">EV AT THESE ODDS</div>
+        <div class="stat-value" style="color:{ev_color_k}">{k_ev:+.1%}</div>
+    </div>""", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8aa0b4;background:#0d1117;border:1px solid #1e2d3d;border-radius:3px;padding:12px 16px">
+    <div style="margin-bottom:6px">Full Kelly: <span style="color:#f5a623">{full_k:.1%}</span> → <span style="color:#c8d8e8">${stake_full:.2f}</span></div>
+    <div style="margin-bottom:6px">Half Kelly: <span style="color:#00e676">{half_k:.1%}</span> → <span style="color:#c8d8e8">${stake_half:.2f}</span> ← recommended</div>
+    <div>Quarter Kelly: <span style="color:#29b6f6">{quarter_k:.1%}</span> → <span style="color:#c8d8e8">${quarter_k*current_br:.2f}</span></div>
     </div>
+    """, unsafe_allow_html=True)
+
+# Log a bet
+st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+st.markdown('<div class="section-tag">✏️ LOG BET RESULT</div>', unsafe_allow_html=True)
+lc1, lc2, lc3, lc4, lc5 = st.columns([2,1,1,1,1])
+with lc1:
+    log_player = st.text_input("Player", placeholder="Name…", label_visibility="collapsed")
+with lc2:
+    log_side = st.selectbox("Side", ["More","Less"], label_visibility="collapsed")
+with lc3:
+    log_stake = st.number_input("Stake $", min_value=1.0, value=10.0, label_visibility="collapsed")
+with lc4:
+    log_payout = st.number_input("Payout ×", min_value=1.0, value=1.0, label_visibility="collapsed")
+with lc5:
+    log_result = st.selectbox("Result", ["Win","Loss"], label_visibility="collapsed")
+if st.button("Log Bet", use_container_width=True):
+    pnl = log_stake * log_payout if log_result == "Win" else -log_stake
+    st.session_state.bet_log.append({
+        "player": log_player, "side": log_side,
+        "stake": log_stake, "payout": log_payout,
+        "result": log_result, "pnl": pnl,
+        "date": datetime.now().strftime("%m/%d %H:%M"),
+    })
+    st.success(f"Logged: {'✅' if log_result=='Win' else '❌'} {log_player} {log_side} → ${pnl:+.2f}")
+    st.rerun()
+
+# Bet log table
+if st.session_state.bet_log:
+    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+    log_df = pd.DataFrame(st.session_state.bet_log)
+    log_df["P&L"] = log_df["pnl"].map("${:+.2f}".format)
+    def color_pnl(val):
+        return "color:#00e676" if "+" in val else "color:#ff5252"
+    st.dataframe(
+        log_df[["date","player","side","stake","payout","result","P&L"]]
+        .style.applymap(color_pnl, subset=["P&L"])
+        .set_properties(**{"font-family":"IBM Plex Mono","font-size":"11px"}),
+        use_container_width=True, height=220,
+    )
+    if st.button("🗑 Clear Log"):
+        st.session_state.bet_log = []
+        st.rerun()
+```
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+# TAB 5 — METHODOLOGY
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab5:
+st.markdown(”””
+<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8aa0b4;line-height:2;max-width:860px">
+
+```
+<div style="color:#f5a623;font-size:14px;margin-bottom:12px">FAIR VALUE CALCULATION</div>
+
+<b style="color:#c8d8e8">Step 1 — Data Collection</b><br>
+HR props pulled from The Odds API using sharp, high-liquidity books.
+Books ordered by sharpness: Pinnacle → DraftKings → FanDuel → BetMGM → Caesars.<br><br>
+
+<b style="color:#c8d8e8">Step 2 — Implied Probability</b><br>
+Each book's American odds converted: <span style="color:#29b6f6">implied = 1 / decimal</span><br>
+American → Decimal: positive odds = o/100+1, negative odds = 100/|o|+1<br><br>
+
+<b style="color:#c8d8e8">Step 3 — Consensus (Market Truth)</b><br>
+Simple arithmetic mean across all sharp books for each side.
+More books = higher confidence = better grade.<br><br>
+
+<b style="color:#c8d8e8">Step 4 — No-Vig (Multiplicative Method)</b><br>
+<span style="color:#29b6f6">fair_over = mkt_over / (mkt_over + mkt_under)</span><br>
+This removes the bookmaker margin proportionally from both sides.<br><br>
+
+<b style="color:#c8d8e8">Step 5 — EV vs DFS Platform</b><br>
+PrizePicks and Underdog pay ~1:1 per leg (entry buyin returned if leg wins).<br>
+<span style="color:#29b6f6">EV = fair_p × (payout + 1) − 1</span><br>
+For 1:1 this simplifies to: <span style="color:#29b6f6">EV = fair_p × 2 − 1</span><br>
+Break-even at fair_p = 50.0%<br><br>
+
+<b style="color:#c8d8e8">Step 6 — Kelly Criterion (½ Kelly)</b><br>
+<span style="color:#29b6f6">Full Kelly = (b×p − q) / b</span> where b=net payout odds, p=fair prob, q=1-p<br>
+We use ½ Kelly to reduce variance while maintaining edge.<br><br>
+
+<div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">CONFIDENCE GRADE</div>
+
+Grades scored on EV magnitude, number of books sampled, and book divergence (std dev):<br>
+<span style="color:#00e676">A+ / A</span> — High EV, 4+ books, low divergence<br>
+<span style="color:#29b6f6">B+ / B</span> — Moderate EV, 3+ books<br>
+<span style="color:#f5a623">C</span>   — Low EV or few books<br>
+<span style="color:#ff5252">D / F</span> — Marginal or negative EV<br><br>
+
+<div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">STEAM DETECTION</div>
+
+A "steam move" flag triggers when the fair probability shifts ≥3% between refreshes.
+This can indicate sharp money moving the line or new information (injury, lineup change).<br><br>
+
+<div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">CALIFORNIA DFS CONTEXT</div>
+
+Traditional fixed-odds sports betting is not legal in CA as of 2026.
+DFS platforms (PrizePicks, Underdog Fantasy, DraftKings DFS, FanDuel DFS) operate legally.
+This tool identifies when market-implied fair probability creates positive expected value
+against a platform's fixed payout structure.<br><br>
+
+<div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">LIMITATIONS & DISCLAIMER</div>
+
+• HR props are low-probability events with high variance. EV edge can be wiped by small sample<br>
+• DFS platform payouts and rules change — always verify current structure before playing<br>
+• Correlation between players in the same game is not fully modeled<br>
+• This tool is for informational and educational purposes only<br>
+• Past EV does not guarantee future results. Play within your means<br><br>
+
 </div>
 """, unsafe_allow_html=True)
+```
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# AUTO-REFRESH
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+if auto_refresh:
+elapsed = (datetime.now() - st.session_state.last_refresh).seconds if st.session_state.last_refresh else 999
+remaining = max(0, 90 - elapsed)
+if remaining == 0:
+st.cache_data.clear()
+st.rerun()
+else:
+st.markdown(f’<div style="position:fixed;bottom:12px;right:16px;font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#4a6275;background:#0d1117;border:1px solid #1e2d3d;padding:4px 10px;border-radius:3px">AUTO-REFRESH IN {remaining}s</div>’, unsafe_allow_html=True)
+time.sleep(1)
+st.rerun()
