@@ -5,17 +5,11 @@ import itertools
 
 st.set_page_config(page_title="HR EV Finder", layout="wide")
 
-st.title("⚾ MLB Home Run EV Dashboard")
+st.title("⚾ MLB Home Run EV Dashboard (FanDuel Powered)")
 
 # -----------------------------
 # CONFIG
 # -----------------------------
-
-API_KEY = "2cbb0724119f3699ff79ba1834553df1"
-
-SPORT = "baseball_mlb"
-REGION = "us"
-MARKET = "batter_home_runs"
 
 PICKEM_IMPLIED_PROB = st.sidebar.slider(
     "Pick'em Implied Probability",
@@ -23,6 +17,8 @@ PICKEM_IMPLIED_PROB = st.sidebar.slider(
 )
 
 MIN_EDGE = st.sidebar.slider("Minimum Edge Filter", 0.0, 0.10, 0.01, 0.005)
+
+AUTO_REFRESH = st.sidebar.checkbox("Auto Refresh (30s)")
 
 # -----------------------------
 # FUNCTIONS
@@ -40,79 +36,87 @@ def remove_vig(p1, p2):
     return p1 / total, p2 / total
 
 
-def get_odds():
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
+# 🔥 FanDuel scraper (unofficial endpoint)
+def get_fanduel_hr_props():
+    url = "https://sportsbook.fanduel.com/api/content-managed-page"
     
     params = {
-        "apiKey": API_KEY,
-        "regions": REGION,
-        "markets": MARKET,
-        "oddsFormat": "american"
+        "page": "mlb",
+        "includePrices": "true"
     }
 
-    response = requests.get(url, params=params)
-    return response.json()
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    r = requests.get(url, params=params, headers=headers)
+
+    if r.status_code != 200:
+        st.error("Failed to fetch FanDuel data")
+        return []
+
+    return r.json()
 
 
-def extract_hr_props(data):
+def extract_hr_data(data):
     players = {}
 
-    for game in data:
-        for book in game["bookmakers"]:
-            for market in book["markets"]:
-                if market["key"] != "batter_home_runs":
+    try:
+        events = data.get("attachments", {}).get("events", {})
+        markets = data.get("attachments", {}).get("markets", {})
+
+        for market_id, market in markets.items():
+            name = market.get("marketName", "").lower()
+
+            # 🔥 filter HR markets
+            if "home run" not in name:
+                continue
+
+            runners = market.get("runners", [])
+
+            for runner in runners:
+                player = runner.get("runnerName")
+                odds = runner.get("winRunnerOdds", {}).get("americanDisplayOdds", {}).get("americanOdds")
+
+                if not player or odds is None:
                     continue
 
-                for outcome in market["outcomes"]:
-                    name = outcome["description"]  # player name
-                    odds = outcome["price"]
-                    label = outcome["name"]  # Over / Under
+                if player not in players:
+                    players[player] = {"over": [], "under": []}
 
-                    if name not in players:
-                        players[name] = {"over": [], "under": []}
+                # HR prop is binary: treat as "over"
+                players[player]["over"].append(odds)
 
-                    if label.lower() == "over":
-                        players[name]["over"].append(odds)
-                    else:
-                        players[name]["under"].append(odds)
+        return players
 
-    return players
+    except Exception as e:
+        st.error(f"Parsing error: {e}")
+        return {}
 
 
 def calculate_ev(players_dict):
     rows = []
 
     for player, odds_dict in players_dict.items():
-        if not odds_dict["over"] or not odds_dict["under"]:
+        if not odds_dict["over"]:
             continue
 
-        # Average across books
-        avg_over_odds = sum(odds_dict["over"]) / len(odds_dict["over"])
-        avg_under_odds = sum(odds_dict["under"]) / len(odds_dict["under"])
+        avg_odds = sum(odds_dict["over"]) / len(odds_dict["over"])
 
-        over_prob = american_to_prob(avg_over_odds)
-        under_prob = american_to_prob(avg_under_odds)
+        true_prob = american_to_prob(avg_odds)
 
-        true_over, true_under = remove_vig(over_prob, under_prob)
-
-        edge_over = true_over - PICKEM_IMPLIED_PROB
-        edge_under = true_under - PICKEM_IMPLIED_PROB
-
-        best_edge = max(edge_over, edge_under)
-        best_bet = "HR" if edge_over > edge_under else "No HR"
+        edge = true_prob - PICKEM_IMPLIED_PROB
 
         rows.append({
             "Player": player,
-            "True HR Prob": round(true_over, 4),
-            "Edge HR": round(edge_over, 4),
-            "Edge No HR": round(edge_under, 4),
-            "Best Bet": best_bet,
-            "Best Edge": round(best_edge, 4),
-            "EV+": best_edge > 0
+            "HR Odds": round(avg_odds, 0),
+            "True HR Prob": round(true_prob, 4),
+            "Edge": round(edge, 4),
+            "EV+": edge > 0
         })
 
     df = pd.DataFrame(rows)
-    return df.sort_values(by="Best Edge", ascending=False)
+    return df.sort_values(by="Edge", ascending=False)
 
 
 def generate_slips(df, legs=2):
@@ -130,7 +134,6 @@ def generate_slips(df, legs=2):
             prob *= leg["True HR Prob"]
             players.append(leg["Player"])
 
-        # PrizePicks payout approximation
         payout_map = {2: 3, 3: 5}
         payout = payout_map.get(legs, 3)
 
@@ -147,21 +150,31 @@ def generate_slips(df, legs=2):
 
 
 # -----------------------------
-# FETCH DATA
+# MAIN FLOW
 # -----------------------------
 
-if st.button("🔄 Pull Live Odds"):
-    with st.spinner("Fetching odds..."):
-        raw_data = get_odds()
-        players = extract_hr_props(raw_data)
+if st.button("🔄 Pull FanDuel HR Props") or AUTO_REFRESH:
+    with st.spinner("Scraping FanDuel..."):
+        raw_data = get_fanduel_hr_props()
+
+        if not raw_data:
+            st.stop()
+
+        players = extract_hr_data(raw_data)
+
+        if not players:
+            st.warning("No HR props found")
+            st.stop()
+
         df = calculate_ev(players)
 
-        df = df[df["Best Edge"] > MIN_EDGE]
+        df = df[df["Edge"] > MIN_EDGE]
 
         st.session_state["data"] = df
 
+
 # -----------------------------
-# DISPLAY RESULTS
+# DISPLAY
 # -----------------------------
 
 if "data" in st.session_state:
@@ -170,8 +183,11 @@ if "data" in st.session_state:
     st.subheader("📊 +EV Home Run Props")
     st.dataframe(df, use_container_width=True)
 
+    st.subheader("🔥 Top Plays")
+    st.dataframe(df.head(10), use_container_width=True)
+
     # -----------------------------
-    # SLIP BUILDER
+    # SLIPS
     # -----------------------------
 
     st.subheader("🧠 Best Slips")
@@ -179,32 +195,23 @@ if "data" in st.session_state:
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Generate 2-Leg Slips"):
-            slips_2 = generate_slips(df, legs=2)
-            st.dataframe(slips_2.head(10), use_container_width=True)
+        if st.button("Generate 2-Leg"):
+            slips = generate_slips(df, 2)
+            st.dataframe(slips.head(10), use_container_width=True)
 
     with col2:
-        if st.button("Generate 3-Leg Slips"):
-            slips_3 = generate_slips(df, legs=3)
-            st.dataframe(slips_3.head(10), use_container_width=True)
+        if st.button("Generate 3-Leg"):
+            slips = generate_slips(df, 3)
+            st.dataframe(slips.head(10), use_container_width=True)
 
 else:
-    st.info("Click 'Pull Live Odds' to begin")
+    st.info("Click to load FanDuel HR props")
 
 # -----------------------------
-# FOOTER
+# AUTO REFRESH
 # -----------------------------
 
-st.markdown("""
-### ⚠️ Notes
-- Uses multi-book average for sharper probabilities
-- Removes vig before EV calculation
-- Pick’em apps approximated at ~54–56%
-- HR bets are high variance — bankroll management matters
-
-### 🚀 Future Upgrades
-- PrizePicks scraping
-- Line mismatch detection (HUGE edge)
-- CLV tracking
-- Auto-refresh odds
-""")
+if AUTO_REFRESH:
+    import time
+    time.sleep(30)
+    st.experimental_rerun()
