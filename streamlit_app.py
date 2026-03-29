@@ -60,7 +60,7 @@ def kelly_fraction(prob, odds):
 def fetch_odds():
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
     params = {
-        "apiKey": API_KEY,
+        "apiKey": eae9d41aeb04de0b745e691a4a637591,
         "regions": REGION,
         "markets": MARKET,
         "bookmakers": ",".join(BOOKS),
