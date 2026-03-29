@@ -60,7 +60,7 @@ def kelly_fraction(prob, odds):
 def fetch_odds():
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
     params = {
-        "apiKey": eae9d41aeb04de0b745e691a4a637591,
+        "apiKey": API_KEY,
         "regions": REGION,
         "markets": MARKET,
         "bookmakers": ",".join(BOOKS),
@@ -104,7 +104,7 @@ min_kelly = st.sidebar.slider("Min Kelly Units", 0.0, 0.5, 0.02)
 kelly_fraction_scale = st.sidebar.selectbox(
     "Kelly Fraction",
     options=[1, 0.5, 0.25],
-    format_func=lambda x: f"{x}x ({'Full' if x==1 else 'Half' if x==0.5 else 'Quarter'})",
+    format_func=lambda x: f"{x}x",
     index=2
 )
 
@@ -119,7 +119,6 @@ for player, books in players.items():
 
     probs = [american_to_prob(o) for o in books.values()]
 
-    # DEVIG
     total = sum(probs)
     devig_probs = [p / total for p in probs]
 
@@ -129,8 +128,7 @@ for player, books in players.items():
     for book, odds in books.items():
         ev = calculate_ev(fair_prob, odds)
 
-        kelly = kelly_fraction(fair_prob, odds)
-        kelly *= kelly_fraction_scale
+        kelly = kelly_fraction(fair_prob, odds) * kelly_fraction_scale
 
         rows.append({
             "Player": player,
