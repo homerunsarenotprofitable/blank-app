@@ -22,6 +22,9 @@ def load_data():
 
 history, ev = load_data()
 
+# ✅ KEEP RAW COPY FOR TEST TAB
+ev_raw = ev.copy()
+
 # --- CONVERT ODDS TO IMPLIED PROBABILITY ---
 def convert_odds_to_prob(row):
     if "decimal_odds" in row and not pd.isna(row["decimal_odds"]):
@@ -49,6 +52,7 @@ if not ev.empty:
         # ✅ Correct EV formula
         ev["EV"] = ev["baseline_prob"] * (ev["decimal_odds"] - 1) - (1 - ev["baseline_prob"])
 
+        # Filter +EV
         ev = ev[ev["EV"] >= 0.05]
 
 # --- KELLY FUNCTION ---
@@ -59,7 +63,7 @@ def kelly_fraction(prob, decimal_odds):
     f = (b * prob - (1 - prob)) / b
     return max(f, 0)
 
-# --- TABS (FIXED) ---
+# --- TABS ---
 tab1, tab2, tab3, tab4, tab5, tab_test = st.tabs([
     "🔥 Top 10 Props",
     "🧩 Slate Builder",
@@ -70,7 +74,7 @@ tab1, tab2, tab3, tab4, tab5, tab_test = st.tabs([
 ])
 
 # =========================
-# 🔥 TOP 10 SINGLE PROPS
+# 🔥 TOP 10
 # =========================
 with tab1:
     st.header("🔥 Top 10 Single +EV Props")
@@ -95,23 +99,14 @@ with tab1:
 # 🧩 SLATE BUILDER
 # =========================
 with tab2:
-    st.header("🧩 Slate Builder (Manual)")
+    st.header("🧩 Slate Builder")
 
     if not ev.empty:
         labels = ev["player"] + " | " + ev["prop"]
 
-        selections = st.multiselect(
-            "Select picks for your slate",
-            labels,
-            default=[]
-        )
+        selections = st.multiselect("Select picks", labels)
 
-        slate_payout = st.number_input(
-            "Enter slate payout multiplier",
-            value=2.0,
-            min_value=1.0,
-            step=0.1
-        )
+        payout = st.number_input("Payout multiplier", value=2.0, min_value=1.0, step=0.1)
 
         if selections:
             selected_rows = ev[labels.isin(selections)]
@@ -122,41 +117,33 @@ with tab2:
             for p in probs:
                 combined_prob *= p
 
-            slate_ev = combined_prob * (slate_payout - 1) - (1 - combined_prob)
+            slate_ev = combined_prob * (payout - 1) - (1 - combined_prob)
+            units = kelly_fraction(combined_prob, payout)
 
-            suggested_units = kelly_fraction(combined_prob, slate_payout)
-
-            st.metric("Combined Probability", f"{round(combined_prob * 100, 2)}%")
-            st.metric("Slate EV", f"{round(slate_ev, 4)}")
-            st.metric("Suggested Units", f"{round(suggested_units, 4)}")
+            st.metric("Combined Probability", f"{round(combined_prob*100,2)}%")
+            st.metric("Slate EV", f"{round(slate_ev,4)}")
+            st.metric("Suggested Units", f"{round(units,4)}")
         else:
-            st.info("Select 2–10 picks to calculate slate EV")
+            st.info("Select picks")
     else:
-        st.info("No +EV picks to build a slate")
+        st.info("No +EV picks available")
 
 # =========================
 # 💡 SUGGESTED SLATES
 # =========================
 with tab3:
-    st.header("💡 Suggested Slates (Auto +EV with Units)")
+    st.header("💡 Suggested Slates")
 
     if not ev.empty:
         top_picks = ev.sort_values("EV", ascending=False).head(10)
         labels = top_picks["player"] + " | " + top_picks["prop"]
 
-        max_slate_size = st.slider("Max picks per slate", 2, 5, value=3)
-
-        slate_payout = st.number_input(
-            "Enter slate payout multiplier for suggestions",
-            value=2.0,
-            min_value=1.0,
-            step=0.1,
-            key="suggestion_payout"
-        )
+        max_size = st.slider("Max picks", 2, 5, 3)
+        payout = st.number_input("Payout", value=2.0, key="payout2")
 
         slates = []
 
-        for r in range(2, max_slate_size + 1):
+        for r in range(2, max_size + 1):
             for combo in combinations(labels, r):
                 probs = []
 
@@ -164,28 +151,27 @@ with tab3:
                     prob = top_picks[
                         (top_picks["player"] + " | " + top_picks["prop"]) == c
                     ]["baseline_prob"].values[0]
+
                     probs.append(prob)
 
                 combined_prob = 1
                 for p in probs:
                     combined_prob *= p
 
-                slate_ev = combined_prob * (slate_payout - 1) - (1 - combined_prob)
-
-                suggested_units = kelly_fraction(combined_prob, slate_payout)
+                slate_ev = combined_prob * (payout - 1) - (1 - combined_prob)
+                units = kelly_fraction(combined_prob, payout)
 
                 slates.append({
                     "Slate": combo,
-                    "Combined Prob": round(combined_prob * 100, 2),
-                    "Slate EV": round(slate_ev, 4),
-                    "Suggested Units": round(suggested_units, 4)
+                    "Prob %": round(combined_prob*100,2),
+                    "EV": round(slate_ev,4),
+                    "Units": round(units,4)
                 })
 
-        slate_df = pd.DataFrame(slates).sort_values("Slate EV", ascending=False).head(5)
-
-        st.dataframe(slate_df, use_container_width=True)
+        df = pd.DataFrame(slates).sort_values("EV", ascending=False).head(5)
+        st.dataframe(df, use_container_width=True)
     else:
-        st.info("No +EV picks available")
+        st.info("No data")
 
 # =========================
 # 📊 PERFORMANCE
@@ -196,50 +182,50 @@ with tab4:
     if not history.empty:
         history = history.dropna(subset=["profit"])
 
-        total_profit = history["profit"].sum()
-        total_staked = history["stake"].sum()
-        roi = total_profit / total_staked if total_staked > 0 else 0
+        profit = history["profit"].sum()
+        staked = history["stake"].sum()
+        roi = profit / staked if staked > 0 else 0
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Profit", f"${round(total_profit, 2)}")
-        col2.metric("Total Staked", f"${round(total_staked, 2)}")
-        col3.metric("ROI", f"{round(roi * 100, 2)}%")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Profit", f"${round(profit,2)}")
+        c2.metric("Staked", f"${round(staked,2)}")
+        c3.metric("ROI", f"{round(roi*100,2)}%")
 
         history["date"] = pd.to_datetime(history["date"])
         history = history.sort_values("date")
-        history["cum_profit"] = history["profit"].cumsum()
+        history["cum"] = history["profit"].cumsum()
 
-        st.line_chart(history.set_index("date")["cum_profit"], use_container_width=True)
-
-        st.subheader("Profit by Book")
-        st.bar_chart(history.groupby("book")["profit"].sum(), use_container_width=True)
+        st.line_chart(history.set_index("date")["cum"])
+        st.bar_chart(history.groupby("book")["profit"].sum())
     else:
-        st.info("No bet history yet")
+        st.info("No history")
 
 # =========================
 # 📜 HISTORY
 # =========================
 with tab5:
-    st.header("📜 Bet History")
+    st.header("📜 History")
 
     if not history.empty:
-        books = st.multiselect("Filter by book", history["book"].unique())
+        books = st.multiselect("Books", history["book"].unique())
 
         df = history.copy()
         if books:
             df = df[df["book"].isin(books)]
 
-        st.dataframe(df.sort_values("date", ascending=False), use_container_width=True)
+        st.dataframe(df.sort_values("date", ascending=False))
     else:
-        st.info("No data yet")
+        st.info("No data")
 
 # =========================
-# 🧪 TEST ODDS
+# 🧪 TEST TAB (FIXED)
 # =========================
 with tab_test:
-    st.header("🧪 Raw Odds Preview (first 5 rows)")
+    st.header("🧪 Raw Odds Preview")
 
-    if not ev.empty:
-        st.dataframe(ev.head(5), use_container_width=True)
+    if not ev_raw.empty:
+        st.write("Raw rows:", len(ev_raw))
+        st.write("Filtered (+EV) rows:", len(ev))
+        st.dataframe(ev_raw.head(5), use_container_width=True)
     else:
         st.info("No odds data loaded from live_ev.csv")
