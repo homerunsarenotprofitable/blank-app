@@ -1,215 +1,210 @@
 import streamlit as st
 import pandas as pd
-import itertools
 import requests
+import itertools
 
-st.set_page_config(page_title="HR DFS EV Engine", layout="wide")
+st.set_page_config(page_title="HR EV Finder", layout="wide")
 
-st.title("⚾ HR DFS +EV Engine (Market-Based)")
+st.title("⚾ MLB Home Run EV Dashboard")
 
 # -----------------------------
 # CONFIG
 # -----------------------------
+
 API_KEY = "2cbb0724119f3699ff79ba1834553df1"
+
+SPORT = "baseball_mlb"
+REGION = "us"
+MARKET = "batter_home_runs"
+
+PICKEM_IMPLIED_PROB = st.sidebar.slider(
+    "Pick'em Implied Probability",
+    0.50, 0.60, 0.545, 0.001
+)
+
+MIN_EDGE = st.sidebar.slider("Minimum Edge Filter", 0.0, 0.10, 0.01, 0.005)
 
 # -----------------------------
 # FUNCTIONS
 # -----------------------------
+
 def american_to_prob(odds):
-    if odds > 0:
-        return 100 / (odds + 100)
-    else:
+    if odds < 0:
         return abs(odds) / (abs(odds) + 100)
+    else:
+        return 100 / (odds + 100)
 
-def calculate_ev(prob, payout):
-    return (prob * payout) - 1
 
-def parlay_ev(probs, payout):
-    win_prob = 1
-    for p in probs:
-        win_prob *= p
-    ev = (win_prob * payout) - 1
-    return win_prob, ev
+def remove_vig(p1, p2):
+    total = p1 + p2
+    return p1 / total, p2 / total
 
-def kelly(win_prob, payout):
-    b = payout - 1
-    p = win_prob
-    q = 1 - p
 
-    if b == 0:
-        return 0
-
-    k = (b * p - q) / b
-    k = max(0, k)
-    k = min(k, 0.25)
-    return k
-
-# -----------------------------
-# FETCH ODDS (SPORTBOOKS)
-# -----------------------------
-def fetch_odds():
-    url = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/"
+def get_odds():
+    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
     
     params = {
         "apiKey": API_KEY,
-        "regions": "us",
-        "markets": "player_home_runs",
+        "regions": REGION,
+        "markets": MARKET,
         "oddsFormat": "american"
     }
 
-    r = requests.get(url, params=params)
-    if r.status_code != 200:
-        return []
+    response = requests.get(url, params=params)
+    return response.json()
 
-    data = r.json()
-    rows = []
+
+def extract_hr_props(data):
+    players = {}
 
     for game in data:
-        for book in game.get("bookmakers", []):
-            book_name = book["key"]
+        for book in game["bookmakers"]:
+            for market in book["markets"]:
+                if market["key"] != "batter_home_runs":
+                    continue
 
-            for market in book.get("markets", []):
-                if market["key"] == "player_home_runs":
-                    for outcome in market["outcomes"]:
-                        rows.append({
-                            "Player": outcome["description"],
-                            "Odds": outcome["price"],
-                            "Sportsbook": book_name,
-                            "Game": game.get("home_team","") + " vs " + game.get("away_team","")
-                        })
+                for outcome in market["outcomes"]:
+                    name = outcome["description"]  # player name
+                    odds = outcome["price"]
+                    label = outcome["name"]  # Over / Under
 
-    return rows
+                    if name not in players:
+                        players[name] = {"over": [], "under": []}
 
-# -----------------------------
-# PROCESS MARKET PROBABILITIES
-# -----------------------------
-def build_market_probs(data):
-    df = pd.DataFrame(data)
-    df["Prob"] = df["Odds"].apply(american_to_prob)
+                    if label.lower() == "over":
+                        players[name]["over"].append(odds)
+                    else:
+                        players[name]["under"].append(odds)
 
-    grouped = df.groupby("Player").agg({
-        "Prob": "mean",
-        "Game": "first"
-    }).reset_index()
+    return players
 
-    grouped = grouped.rename(columns={"Prob": "HR Probability"})
-    return grouped
 
-# -----------------------------
-# DFS INPUT (MANUAL)
-# -----------------------------
-def get_dfs_lines(players):
-    st.subheader("🎯 Enter DFS Lines (PrizePicks / Underdog)")
+def calculate_ev(players_dict):
+    rows = []
 
-    dfs_data = []
+    for player, odds_dict in players_dict.items():
+        if not odds_dict["over"] or not odds_dict["under"]:
+            continue
 
-    for player in players:
-        line = st.number_input(f"{player} HR Line (0.5)", 0.0, 2.0, 0.5, key=player)
+        # Average across books
+        avg_over_odds = sum(odds_dict["over"]) / len(odds_dict["over"])
+        avg_under_odds = sum(odds_dict["under"]) / len(odds_dict["under"])
 
-        dfs_data.append({
+        over_prob = american_to_prob(avg_over_odds)
+        under_prob = american_to_prob(avg_under_odds)
+
+        true_over, true_under = remove_vig(over_prob, under_prob)
+
+        edge_over = true_over - PICKEM_IMPLIED_PROB
+        edge_under = true_under - PICKEM_IMPLIED_PROB
+
+        best_edge = max(edge_over, edge_under)
+        best_bet = "HR" if edge_over > edge_under else "No HR"
+
+        rows.append({
             "Player": player,
-            "DFS Line": line
+            "True HR Prob": round(true_over, 4),
+            "Edge HR": round(edge_over, 4),
+            "Edge No HR": round(edge_under, 4),
+            "Best Bet": best_bet,
+            "Best Edge": round(best_edge, 4),
+            "EV+": best_edge > 0
         })
 
-    return pd.DataFrame(dfs_data)
+    df = pd.DataFrame(rows)
+    return df.sort_values(by="Best Edge", ascending=False)
+
+
+def generate_slips(df, legs=2):
+    ev_df = df[df["EV+"] == True]
+
+    combos = list(itertools.combinations(ev_df.to_dict("records"), legs))
+
+    slips = []
+
+    for combo in combos:
+        prob = 1
+        players = []
+
+        for leg in combo:
+            prob *= leg["True HR Prob"]
+            players.append(leg["Player"])
+
+        # PrizePicks payout approximation
+        payout_map = {2: 3, 3: 5}
+        payout = payout_map.get(legs, 3)
+
+        ev = (prob * payout) - 1
+
+        slips.append({
+            "Players": ", ".join(players),
+            "Hit Prob": round(prob, 4),
+            "Payout": payout,
+            "Slip EV": round(ev, 4)
+        })
+
+    return pd.DataFrame(slips).sort_values(by="Slip EV", ascending=False)
+
 
 # -----------------------------
-# TABS
+# FETCH DATA
 # -----------------------------
-tab1, tab2, tab3 = st.tabs(["📊 Market Data", "⚖️ DFS Comparison", "🤖 Optimizer"])
 
-# -----------------------------
-# TAB 1: MARKET DATA
-# -----------------------------
-with tab1:
-    if st.button("Pull Live HR Odds"):
-        raw = fetch_odds()
+if st.button("🔄 Pull Live Odds"):
+    with st.spinner("Fetching odds..."):
+        raw_data = get_odds()
+        players = extract_hr_props(raw_data)
+        df = calculate_ev(players)
 
-        if raw:
-            df = build_market_probs(raw)
-            df = df.sort_values(by="HR Probability", ascending=False)
+        df = df[df["Best Edge"] > MIN_EDGE]
 
-            st.session_state["df"] = df
-
-            st.subheader("🏆 Market HR Probabilities")
-            st.dataframe(df)
-
-            st.subheader("🔥 Top 10")
-            st.dataframe(df.head(10))
-        else:
-            st.error("Failed to fetch odds")
+        st.session_state["data"] = df
 
 # -----------------------------
-# TAB 2: DFS COMPARISON
+# DISPLAY RESULTS
 # -----------------------------
-with tab2:
-    if "df" not in st.session_state:
-        st.warning("Pull market data first")
-    else:
-        df = st.session_state["df"]
 
-        dfs_df = get_dfs_lines(df["Player"].tolist())
+if "data" in st.session_state:
+    df = st.session_state["data"]
 
-        merged = df.merge(dfs_df, on="Player")
+    st.subheader("📊 +EV Home Run Props")
+    st.dataframe(df, use_container_width=True)
 
-        # Assume DFS 0.5 HR = binary event
-        # Approx implied probability threshold ~ 57.7% for 2-pick
-        dfs_prob = 0.577
+    # -----------------------------
+    # SLIP BUILDER
+    # -----------------------------
 
-        merged["Edge"] = merged["HR Probability"] - dfs_prob
+    st.subheader("🧠 Best Slips")
 
-        st.subheader("⚖️ DFS Edge Comparison")
-        st.dataframe(merged.sort_values(by="Edge", ascending=False))
+    col1, col2 = st.columns(2)
 
-        st.session_state["merged"] = merged
+    with col1:
+        if st.button("Generate 2-Leg Slips"):
+            slips_2 = generate_slips(df, legs=2)
+            st.dataframe(slips_2.head(10), use_container_width=True)
+
+    with col2:
+        if st.button("Generate 3-Leg Slips"):
+            slips_3 = generate_slips(df, legs=3)
+            st.dataframe(slips_3.head(10), use_container_width=True)
+
+else:
+    st.info("Click 'Pull Live Odds' to begin")
 
 # -----------------------------
-# TAB 3: OPTIMIZER
+# FOOTER
 # -----------------------------
-with tab3:
-    if "merged" not in st.session_state:
-        st.warning("Complete DFS comparison first")
-    else:
-        df = st.session_state["merged"]
 
-        num_picks = st.selectbox("Parlay Size", [2, 3, 4])
-        payout_map = {2: 3, 3: 5, 4: 10}
-        payout = payout_map[num_picks]
+st.markdown("""
+### ⚠️ Notes
+- Uses multi-book average for sharper probabilities
+- Removes vig before EV calculation
+- Pick’em apps approximated at ~54–56%
+- HR bets are high variance — bankroll management matters
 
-        bankroll = st.number_input("Bankroll (units)", 1.0, 1000.0, 10.0)
-        unit_size = 100
-
-        top_n = st.slider("Use Top N Players", 5, 15, 10)
-
-        data = df.sort_values(by="HR Probability", ascending=False).head(top_n)
-
-        combos = itertools.combinations(data.to_dict('records'), num_picks)
-
-        results = []
-
-        for combo in combos:
-            players = [p["Player"] for p in combo]
-            probs = [p["HR Probability"] for p in combo]
-
-            win_prob, ev = parlay_ev(probs, payout)
-            k = kelly(win_prob, payout)
-
-            results.append({
-                "Players": ", ".join(players),
-                "Win Prob": win_prob,
-                "EV": ev,
-                "Kelly %": k,
-                "Units": k * bankroll,
-                "Bet ($)": k * bankroll * unit_size
-            })
-
-        results_df = pd.DataFrame(results)
-
-        if not results_df.empty:
-            results_df = results_df.sort_values(by="EV", ascending=False)
-
-            st.subheader("🔥 Best Combos")
-            st.dataframe(results_df.head(10))
-
-            st.subheader("✅ +EV Only")
-            st.dataframe(results_df[results_df["EV"] > 0])
+### 🚀 Future Upgrades
+- PrizePicks scraping
+- Line mismatch detection (HUGE edge)
+- CLV tracking
+- Auto-refresh odds
+""")
