@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import streamlit as st
 import requests
 import pandas as pd
@@ -8,10 +10,10 @@ import time
 # ── Page config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
-page_title="⚾ HR EV Scout",
-page_icon="⚾”,
-layout="wide”,
-initial_sidebar_state="expanded”,
+page_title=“HR EV Scout”,
+page_icon=”:baseball:”,
+layout=“wide”,
+initial_sidebar_state=“expanded”,
 )
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
