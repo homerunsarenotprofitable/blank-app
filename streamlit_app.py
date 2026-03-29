@@ -164,3 +164,15 @@ with tab5:
         st.dataframe(df.sort_values("date", ascending=False), use_container_width=True)
     else:
         st.info("No data yet")
+
+# =========================
+# 🧪 TEST ODDS TAB
+# =========================
+tab_test = st.tab("🧪 Test Odds")
+
+with tab_test:
+    st.header("🧪 Raw Odds Preview (first 5 rows)")
+    if not ev.empty:
+        st.dataframe(ev.head(5), use_container_width=True)
+    else:
+        st.info("No odds data loaded from live_ev.csv")
