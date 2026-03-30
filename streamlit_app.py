@@ -532,7 +532,7 @@ rows.append({
 "Book List": r["books_o"],
 "Mkt Over": r["avg_implied_o"],
 "Mkt Under": r["avg_implied_u"],
-"Fair Over": fair_over := fair_o,
+"Fair Over": fair_o,
 "Fair Under": fair_u,
 "Divergence": div,
 "Fair Over AM": fair_to_american(fair_o),
