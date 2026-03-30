@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 HR Props EV Scanner v2 — California DFS Edition
 Bloomberg Terminal aesthetic · Advanced analytics · Bankroll tracking
@@ -305,7 +306,7 @@ if prob <= 0: return 99999
 if prob >= 1: return -99999
 return int(round((1/prob - 1) * 100)) if prob < 0.5 else int(round(-(prob/(1-prob)) * 100
 def ev_percent(fair_prob: float, payout_mult: float = 1.0) -> float:
-"""EV for a DFS leg: win payout_mult × stake, lose stake."""
+"""EV for a DFS leg: win payout_mult x stake, lose stake."""
 return fair_prob * (payout_mult + 1) - 1
 def kelly_fraction(fair_prob: float, payout_mult: float = 1.0) -> float:
 """Full Kelly stake as fraction of bankroll."""
@@ -318,7 +319,7 @@ return max(k, 0.0)
 def half_kelly(fair_prob: float, payout_mult: float = 1.0) -> float:
 return kelly_fraction(fair_prob, payout_mult) * 0.5
 def grade_play(ev: float, num_books: int, divergence: float) -> str:
-"""Confidence grade A+ → F."""
+"""Confidence grade A+ -> F."""
 score = 0
 if ev >= 0.08: score += 4
 elif ev >= 0.05: score += 3
@@ -331,14 +332,14 @@ if divergence < 0.02: score += 2
 elif divergence < 0.04: score += 1
 if score >= 8: return "A+"
 if score >= 6: return "A"
-if score >= 5: return "B+"
-if score >= 4: if score >= 3: if score >= 2: return "F"
+if score >= 5: if score >= 4: if score >= 3: if score >= 2: return "F"
+return "B+"
 return "B"
 return "C"
 return "D"
 def grade_badge(grade: str) -> str:
 g = grade.replace("+","")
-cls = {"A":"badge-A","B":"badge-B","C":"badge-C","D":"badge-D","F":"badge-D"}
+cls = {"A":"badge-A","B":"badge-B","C":"badge-C","D":"badge-D","F":"badge-D"}.get(g,"badg
 return f'<span class="badge {cls}">{grade}</span>'
 def steam_badge() -> str:
 return '<span class="badge badge-steam"> STEAM</span>'
@@ -365,13 +366,13 @@ return results
 # ─────────────────────────────────────────────────────────────────────────────
 def init_state():
 defaults = {
-"prev_implied": {}, # player → fair_over_% for steam detection
+"prev_implied": {}, # player -> fair_over_% for steam detection
 "saved_parlays": [], # list of saved parlays
 "bankroll": 1000.0, # starting bankroll
 "bet_log": [], # {date, player, side, stake, result, pnl}
 "last_refresh": None,
 "steam_alerts": [],
-"ev_history": defaultdict(list), # player → list of ev snapshots
+"ev_history": defaultdict(list), # player -> list of ev snapshots
 }
 for k, v in defaults.items():
 if k not in st.session_state:
@@ -417,7 +418,7 @@ def fetch_all_props(api_key: str, selected_book_keys: list) -> list:
 events = fetch_events(api_key)
 book_keys_str = ",".join(selected_book_keys)
 all_props = []
-progress = st.progress(0, text="Fetching HR props…")
+progress = st.progress(0, text="Fetching HR props...")
 for i, event in enumerate(events[:15]):
 progress.progress((i+1)/min(len(events),15), text=f"Fetching {event['away_team']} @ {
 data = fetch_event_props(api_key, event["id"], book_keys_str)
@@ -539,8 +540,8 @@ rows.append({
 "Fair Under AM": fair_to_american(fair_u),
 "EV More": ev_more,
 "EV Less": ev_less,
-"½Kelly More": k_more,
-"½Kelly Less": k_less,
+"1/2Kelly More": k_more,
+"1/2Kelly Less": k_less,
 "Grade": grade,
 "Steam": is_steam,
 })
@@ -662,7 +663,7 @@ colors = ["#f5a623","#00e676","#29b6f6","#ff5252","#e040fb"]
 for (n, mult), col in zip(payouts.items(), colors):
 evs = [parlay_ev([p] * n, mult) * 100 for p in probs]
 fig.add_trace(go.Scatter(
-x=probs, y=evs, name=f"{n}-pick ({mult}×)",
+x=probs, y=evs, name=f"{n}-pick ({mult}x)",
 line=dict(color=col, width=2),
 ))
 fig.add_hline(y=0, line_color="#ffffff33", line_width=1)
@@ -684,7 +685,7 @@ api_key = st.text_input(
 "ODDS API KEY",
 value=os.environ.get("ODDS_API_KEY", ""),
 type="password",
-placeholder="get free key → the-odds-api.com",
+placeholder="get free key -> the-odds-api.com",
 )
 platform = st.selectbox("DFS PLATFORM", ["PrizePicks","Underdog Fantasy"], index=0)
 st.markdown("**SHARP BOOKS**")
@@ -706,7 +707,7 @@ st.session_state.bankroll = st.number_input(
 min_value=10.0, step=100.0, label_visibility="collapsed",
 )
 auto_refresh = st.checkbox("Auto-refresh (90s)", value=False)
-refresh_btn = st.button("⟳ REFRESH ODDS", use_container_width=True)
+refresh_btn = st.button("REFRESH REFRESH ODDS", use_container_width=True)
 if api_key:
 quota = fetch_quota(api_key)
 st.markdown(f'<div style="font-size:10px;color:#4a6275;margin-top:8px">API: {quota["r
@@ -716,8 +717,8 @@ METHODOLOGY<br>
 1. Pull HR props from sharp books<br>
 2. Average implied probabilities<br>
 3. Remove vig (multiplicative)<br>
-4. EV = fair_p × 2 − 1 (1:1 DFS)<br>
-5. Kelly = (p×b − q) / b × 0.5<br><br>
+4. EV = fair_p x 2 - 1 (1:1 DFS)<br>
+5. Kelly = (pxb - q) / b x 0.5<br><br>
 CA LEGAL DFS<br>
 ✓ PrizePicks<br>
 ✓ Underdog Fantasy<br>
@@ -796,8 +797,8 @@ current_br = (st.session_state.bankroll + sum(b.get("pnl",0) for b in st.session
 c1,c2,c3,c4,c5,c6 = st.columns(6)
 kpis = [
 ("c1","amber","PLAYERS","TRACKED", str(len(df_filtered)), ""),
-("c2","green","+EV MORE", f"≥{min_ev}%", str(len(pos_more)), ""),
-("c3","green","+EV LESS", f"≥{min_ev}%", str(len(pos_less)), ""),
+("c2","green","+EV MORE", f">={min_ev}%", str(len(pos_more)), ""),
+("c3","green","+EV LESS", f">={min_ev}%", str(len(pos_less)), ""),
 ("c4","amber","BEST EV","More HR", f"{best_ev:+.1%}", ""),
 ("c5","red" if steam_ct > 0 else "blue","STEAM","MOVES", str(int(steam_ct)), ""),
 ("c6","blue","BANKROLL","Current", f"${current_br:,.0f}", ""),
@@ -836,9 +837,9 @@ if not top_more.empty:
 cols = st.columns(min(4, len(top_more)))
 for col, (_, row) in zip(cols, top_more.iterrows()):
 ev = row["EV More"]
-k = row["½Kelly More"]
-steam_txt = " with col:
-" if row["Steam"] else ""
+k = row["1/2Kelly More"]
+steam_txt = " " if row["Steam"] else ""
+with col:
 st.markdown(f"""
 <div class="stat-card green" style="min-height:140px">
 <div style="display:flex;justify-content:space-between;align-items:fl
@@ -874,13 +875,13 @@ games_avail = ["All Games"] + sorted(df_filtered["Game"].unique().tolist())
 game_filter = st.selectbox("Filter by Game", games_avail, index=0, label_visibility="
 tdf = df_filtered if game_filter == "All Games" else df_filtered[df_filtered["Game"]
 # Search
-search = st.text_input("Search player", placeholder="e.g. Judge…", label_visibility="
+search = st.text_input("Search player", placeholder="e.g. Judge...", label_visibility
 if search:
 tdf = tdf[tdf["Player"].str.lower().str.contains(search.lower())]
 # Build display table
 display = tdf[[
 "Player","Game","Books","Grade","Fair Over","Fair Under",
-"Fair Over AM","Fair Under AM","EV More","EV Less","½Kelly More","Steam",
+"Fair Over AM","Fair Under AM","EV More","EV Less","1/2Kelly More","Steam",
 ]].copy()
 display["Fair Over"] = display["Fair Over"].map("{:.1%}".format)
 display["Fair Under"] = display["Fair Under"].map("{:.1%}".format)
@@ -907,7 +908,7 @@ return {
 }.get(g, "")
 display["EV More"] = display["EV More"].map("{:+.1%}".format)
 display["EV Less"] = display["EV Less"].map("{:+.1%}".format)
-display["½Kelly More"] = display["½Kelly More"].map("{:.1%}".format)
+display["1/2Kelly More"] = display["1/2Kelly More"].map("{:.1%}".format)
 styled = (
 display.style
 .applymap(color_ev_cell, subset=["EV More","EV Less"])
@@ -944,8 +945,8 @@ st.markdown(f"""
 <div>Divergence: <span style="color:#f5a623">{prow['Divergence']:.3f}</span><
 <div>Grade: <span style="color:#f5a623">{prow['Grade']}</span></div>
 <div>EV More: <span style="color:#00e676">{prow['EV More']:+.1%}</span></div>
-<div>½ Kelly: <span style="color:#f5a623">{prow['½Kelly More']:.1%} of bankro
-<div>Suggested stake: <span style="color:#f5a623">${prow['½Kelly More'] * st.
+<div>1/2 Kelly: <span style="color:#f5a623">{prow['1/2Kelly More']:.1%} of ba
+<div>Suggested stake: <span style="color:#f5a623">${prow['1/2Kelly More'] * s
 </div>
 """, unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1011,28 +1012,28 @@ with sugg_col1:
 st.markdown('<div style="font-size:10px;color:#4a6275;margin-bottom:6px">BEST MOR
 for _, r in best_legs_more.iterrows():
 st.markdown(f"""<div class="prop-row">
+fair</
 <div>
 <div style="font-size:12px;font-weight:600;color:#c8d8e8">{r['Player'
 <div style="font-size:10px;color:#4a6275">{r['Game']}</div>
 </div>
 <div style="text-align:right">
 <div style="font-size:15px;color:#00e676">{r['EV More']:+.1%}</div>
-<div style="font-size:10px;color:#4a6275">{r['Fair Over']:.1%} fair</
-</div>
+<div style="font-size:10px;color:#4a6275">{r['Fair Over']:.1%} </div>
 </div>""", unsafe_allow_html=True)
 with sugg_col2:
 st.markdown('<div style="font-size:10px;color:#4a6275;margin-bottom:6px">BEST LES
 for _, r in best_legs_less.iterrows():
 st.markdown(f"""<div class="prop-row">
 <div>
+<div style="font-size:12px;font-weight:600;color:#c8d8e8">{r['Player'
+<div style="font-size:10px;color:#4a6275">{r['Game']}</div>
 </div>
 <div style="text-align:right">
 <div style="font-size:15px;color:#00e676">{r['EV Less']:+.1%}</div>
 <div style="font-size:10px;color:#4a6275">{r['Fair Under']:.1%} fair<
 </div>
 </div>""", unsafe_allow_html=True)
-<div style="font-size:12px;font-weight:600;color:#c8d8e8">{r['Player'
-<div style="font-size:10px;color:#4a6275">{r['Game']}</div>
 st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-tag"> CUSTOM PARLAY</div>', unsafe_allow_html=True
 selected_players = st.multiselect(
@@ -1124,7 +1125,7 @@ st.markdown(f"""<div class="prop-row">
 </div>
 <div style="text-align:right">
 <div style="font-size:14px;color:{ev_c}">{p['ev']:+.1%}</div>
-<div style="font-size:10px;color:#4a6275">{p['payout']}× · ${p['stake
+<div style="font-size:10px;color:#4a6275">{p['payout']}x · ${p['stake
 </div>
 </div>""", unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1142,11 +1143,11 @@ pnl_c = "green" if total_pnl >= 0 else "red"
 with mc1:
 st.markdown(f'<div class="stat-card amber"><div class="stat-label">CURRENT BANKROLL</
 with mc2:
-st.markdown(f'<div class="stat-card {pnl_c}"><div class="stat-label">TOTAL P&L</div><
 with mc3:
+with mc4:
+st.markdown(f'<div class="stat-card {pnl_c}"><div class="stat-label">TOTAL P&L</div><
 wr = len(win_bets)/len(st.session_state.bet_log)*100 if st.session_state.bet_log else
 st.markdown(f'<div class="stat-card blue"><div class="stat-label">WIN RATE</div><div
-with mc4:
 st.markdown(f'<div class="stat-card {"green" if roi>=0 else "red"}"><div class="stat-
 # Bankroll chart
 if st.session_state.bet_log:
@@ -1158,7 +1159,7 @@ st.markdown('<div class="section-tag"> KELLY CALCULATOR</div>', unsafe_allow_htm
 kc1, kc2 = st.columns([1,1])
 with kc1:
 k_fair_p = st.slider("Fair Probability", 5, 80, 15, 1, format="%d%%") / 100
-k_payout = st.slider("DFS Payout (×)", 1.0, 25.0, 1.0, 0.5)
+k_payout = st.slider("DFS Payout (x)", 1.0, 25.0, 1.0, 0.5)
 with kc2:
 full_k = kelly_fraction(k_fair_p, k_payout)
 half_k = full_k * 0.5
@@ -1176,7 +1177,7 @@ st.markdown(f"""
 <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8aa0b4;backgr
 <div style="margin-bottom:6px">Full Kelly: <span style="color:#f5a623">{full_k:.1%}</
 <div style="margin-bottom:6px">Half Kelly: <span style="color:#00e676">{half_k:.1%}</
-<div>Quarter Kelly: <span style="color:#29b6f6">{quarter_k:.1%}</span> → <span style=
+<div>Quarter Kelly: <span style="color:#29b6f6">{quarter_k:.1%}</span> -> <span style
 </div>
 """, unsafe_allow_html=True)
 # Log a bet
@@ -1184,13 +1185,13 @@ st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-tag"> LOG BET RESULT</div>', unsafe_allow_html=True)
 lc1, lc2, lc3, lc4, lc5 = st.columns([2,1,1,1,1])
 with lc1:
-log_player = st.text_input("Player", placeholder="Name…", label_visibility="collapsed
+log_player = st.text_input("Player", placeholder="Name...", label_visibility="collaps
 with lc2:
 log_side = st.selectbox("Side", ["More","Less"], label_visibility="collapsed")
 with lc3:
 log_stake = st.number_input("Stake $", min_value=1.0, value=10.0, label_visibility="c
 with lc4:
-log_payout = st.number_input("Payout ×", min_value=1.0, value=1.0, label_visibility="
+log_payout = st.number_input("Payout x", min_value=1.0, value=1.0, label_visibility="
 with lc5:
 log_result = st.selectbox("Result", ["Win","Loss"], label_visibility="collapsed")
 if st.button("Log Bet", use_container_width=True):
@@ -1202,7 +1203,7 @@ st.session_state.bet_log.append({
 "date": datetime.now().strftime("%m/%d %H:%M"),
 })
 st.success(f"Logged: {' st.rerun()
-' if log_result=='Win' else ' '} {log_player} {log_side} →
+' if log_result=='Win' else ' '} {log_player} {log_side} ->
 # Bet log table
 if st.session_state.bet_log:
 st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
@@ -1228,10 +1229,10 @@ st.markdown("""
 <div style="color:#f5a623;font-size:14px;margin-bottom:12px">FAIR VALUE CALCULATION</div>
 <b style="color:#c8d8e8">Step 1 — Data Collection</b><br>
 HR props pulled from The Odds API using sharp, high-liquidity books.
-Books ordered by sharpness: Pinnacle → DraftKings → FanDuel → BetMGM → Caesars.<br><br>
+Books ordered by sharpness: Pinnacle -> DraftKings -> FanDuel -> BetMGM -> Caesars.<br><b
 <b style="color:#c8d8e8">Step 2 — Implied Probability</b><br>
 Each book's American odds converted: <span style="color:#29b6f6">implied = 1 / decimal</s
-American → Decimal: positive odds = o/100+1, negative odds = 100/|o|+1<br><br>
+American -> Decimal: positive odds = o/100+1, negative odds = 100/|o|+1<br><br>
 <b style="color:#c8d8e8">Step 3 — Consensus (Market Truth)</b><br>
 Simple arithmetic mean across all sharp books for each side.
 More books = higher confidence = better grade.<br><br>
@@ -1240,12 +1241,12 @@ More books = higher confidence = better grade.<br><br>
 This removes the bookmaker margin proportionally from both sides.<br><br>
 <b style="color:#c8d8e8">Step 5 — EV vs DFS Platform</b><br>
 PrizePicks and Underdog pay ~1:1 per leg (entry buyin returned if leg wins).<br>
-<span style="color:#29b6f6">EV = fair_p × (payout + 1) − 1</span><br>
-For 1:1 this simplifies to: <span style="color:#29b6f6">EV = fair_p × 2 − 1</span><br>
+<span style="color:#29b6f6">EV = fair_p x (payout + 1) - 1</span><br>
+For 1:1 this simplifies to: <span style="color:#29b6f6">EV = fair_p x 2 - 1</span><br>
 Break-even at fair_p = 50.0%<br><br>
-<b style="color:#c8d8e8">Step 6 — Kelly Criterion (½ Kelly)</b><br>
-<span style="color:#29b6f6">Full Kelly = (b×p − q) / b</span> where b=net payout odds, p=
-We use ½ Kelly to reduce variance while maintaining edge.<br><br>
+<b style="color:#c8d8e8">Step 6 — Kelly Criterion (1/2 Kelly)</b><br>
+<span style="color:#29b6f6">Full Kelly = (bxp - q) / b</span> where b=net payout odds, p=
+We use 1/2 Kelly to reduce variance while maintaining edge.<br><br>
 <div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">CONFIDENCE GRADE</div>
 Grades scored on EV magnitude, number of books sampled, and book divergence (std dev):<br
 <span style="color:#00e676">A+ / A</span> — High EV, 4+ books, low divergence<br>
@@ -1253,7 +1254,7 @@ Grades scored on EV magnitude, number of books sampled, and book divergence (std
 <span style="color:#f5a623">C</span> — Low EV or few books<br>
 <span style="color:#ff5252">D / F</span> — Marginal or negative EV<br><br>
 <div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">STEAM DETECTION</div>
-A "steam move" flag triggers when the fair probability shifts ≥3% between refreshes.
+A "steam move" flag triggers when the fair probability shifts >=3% between refreshes.
 This can indicate sharp money moving the line or new information (injury, lineup change).
 <div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">CALIFORNIA DFS CONTEXT</di
 Traditional fixed-odds sports betting is not legal in CA as of 2026.
