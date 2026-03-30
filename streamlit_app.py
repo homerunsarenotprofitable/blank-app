@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-HR Props EV Scanner v2 — California DFS Edition
-Bloomberg Terminal aesthetic · Advanced analytics · Bankroll tracking
+HR Props EV Scanner v2 -- California DFS Edition
+Bloomberg Terminal aesthetic * Advanced analytics * Bankroll tracking
 Run:
 pip install streamlit requests pandas numpy plotly
 streamlit run hr_ev_app_v2.py
@@ -17,18 +17,18 @@ from plotly.subplots import make_subplots
 import os, json, io, time
 from datetime import datetime, timezone
 from collections import defaultdict
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PAGE CONFIG
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 st.set_page_config(
-page_title="HR EV · CA DFS",
-page_icon=" ",
+page_title="HR EV * CA DFS",
+page_icon="O",
 layout="wide",
 initial_sidebar_state="expanded",
 )
-# ─────────────────────────────────────────────────────────────────────────────
-# STYLES — Bloomberg Terminal / Trading Desk Aesthetic
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# STYLES -- Bloomberg Terminal / Trading Desk Aesthetic
+# -----------------------------------------------------------------------------
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&fami
@@ -267,9 +267,9 @@ text-transform: uppercase;
 }
 </style>
 """, unsafe_allow_html=True)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # CONSTANTS
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 SPORT_KEY = "baseball_mlb"
 MARKET_KEY = "batter_home_runs"
 ODDS_BASE = "https://api.the-odds-api.com/v4"
@@ -287,9 +287,9 @@ SHARP_BOOKS = {
 PP_PAYOUTS = {2: 3.0, 3: 5.0, 4: 10.0, 5: 20.0, 6: 25.0}
 # Underdog (slightly different structure, similar payouts)
 UD_PAYOUTS = {2: 3.0, 3: 6.0, 4: 10.0, 5: 20.0, 6: 40.0}
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # MATH & ANALYTICS
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 def american_to_decimal(a: float) -> float:
 return a / 100 + 1 if a > 0 else 100 / abs(a) + 1
 def decimal_to_implied(d: float) -> float:
@@ -361,9 +361,9 @@ combined_prob = np.prod([p for _, p in best_n])
 e = parlay_ev([p for _, p in best_n], mult)
 results[n] = {"ev": e, "prob": combined_prob, "payout": mult}
 return results
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # SESSION STATE
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 def init_state():
 defaults = {
 "prev_implied": {}, # player -> fair_over_% for steam detection
@@ -378,9 +378,9 @@ for k, v in defaults.items():
 if k not in st.session_state:
 st.session_state[k] = v
 init_state()
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # API
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 @st.cache_data(ttl=90)
 def fetch_events(api_key: str) -> list:
 url = f"{ODDS_BASE}/sports/{SPORT_KEY}/events"
@@ -439,19 +439,19 @@ all_props.append({
 })
 progress.empty()
 return all_props
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # MOCK DATA (realistic, using real players + 2025 opener matchups)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 def mock_props() -> list:
 np.random.seed(int(time.time()) // 120) # changes every 2 min for realism
 players_games = [
 ("Shohei Ohtani","NYY @ LAD"),("Aaron Judge","NYY @ LAD"),
-("Freddie Freeman","ATL @ LAD"),("Ronald Acuña Jr.","ATL @ LAD"),
+("Freddie Freeman","ATL @ LAD"),("Ronald Acuna Jr.","ATL @ LAD"),
 ("Juan Soto","NYY @ LAD"),("Pete Alonso","PHI @ NYM"),
 ("Yordan Alvarez","TEX @ HOU"),("Gunnar Henderson","TOR @ BAL"),
 ("Fernando Tatis Jr.","STL @ SD"),("Kyle Schwarber","PHI @ NYM"),
 ("Bryce Harper","PHI @ NYM"),("Matt Olson","ATL @ LAD"),
-("Adolis García","TEX @ HOU"),("José Ramírez","DET @ CLE"),
+("Adolis Garcia","TEX @ HOU"),("Jose Ramirez","DET @ CLE"),
 ("Manny Machado","STL @ SD"),("Vladimir Guerrero Jr.","TOR @ BAL"),
 ("Marcell Ozuna","ATL @ LAD"),("Christian Yelich","MIL @ CHC"),
 ("Mike Trout","OAK @ LAA"),("Bo Bichette","TOR @ BAL"),
@@ -477,9 +477,9 @@ rows.append({
 "book": SHARP_BOOKS[book], "book_key": book,
 })
 return rows
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # DATA PROCESSING
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 def process_props(raw: list) -> pd.DataFrame:
 if not raw:
 return pd.DataFrame()
@@ -549,9 +549,9 @@ result = pd.DataFrame(rows)
 if not result.empty:
 result = result.sort_values("EV More", ascending=False).reset_index(drop=True)
 return result
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PLOTLY THEME
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 PLOT_LAYOUT = dict(
 paper_bgcolor="#0d1117",
 plot_bgcolor="#0d1117",
@@ -599,7 +599,7 @@ line_dash="dot", line_width=2,
 annotation_text="consensus", annotation_font_color="#f5a623",
 annotation_font_size=10)
 fig.update_layout(**PLOT_LAYOUT,
-title=dict(text=f"{player} — Book Implied Prob (HR Over)", font_color="#f5a623", font
+title=dict(text=f"{player} -- Book Implied Prob (HR Over)", font_color="#f5a623", fon
 height=max(200, len(books_list) * 42),
 xaxis_tickformat=".0%",
 )
@@ -668,15 +668,15 @@ line=dict(color=col, width=2),
 ))
 fig.add_hline(y=0, line_color="#ffffff33", line_width=1)
 fig.update_layout(**PLOT_LAYOUT,
-title=dict(text=f"{platform} — Leg EV% vs Parlay EV% (equal legs)", font_color="#f5a6
+title=dict(text=f"{platform} -- Leg EV% vs Parlay EV% (equal legs)", font_color="#f5a
 xaxis_title="Per-Leg Fair Prob", yaxis_title="Parlay EV %",
 xaxis_tickformat=".0%", yaxis_tickformat="+.0%",
 height=280, legend=dict(bgcolor="#0d1117", bordercolor="#1e2d3d"),
 )
 return fig
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # SIDEBAR
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 with st.sidebar:
 st.markdown('<div style="font-family:IBM Plex Mono;font-size:18px;font-weight:600;color:#
 st.markdown('<div style="font-family:IBM Plex Mono;font-size:10px;color:#4a6275;letter-sp
@@ -720,18 +720,18 @@ METHODOLOGY<br>
 4. EV = fair_p x 2 - 1 (1:1 DFS)<br>
 5. Kelly = (pxb - q) / b x 0.5<br><br>
 CA LEGAL DFS<br>
-✓ PrizePicks<br>
-✓ Underdog Fantasy<br>
-✓ DraftKings DFS<br>
-✓ FanDuel DFS<br><br>
-Sportsbooks: ✗ Not legal in CA<br><br>
+Y PrizePicks<br>
+Y Underdog Fantasy<br>
+Y DraftKings DFS<br>
+Y FanDuel DFS<br><br>
+Sportsbooks: N Not legal in CA<br><br>
 For entertainment only.<br>
 Gamble responsibly.
 </div>""", unsafe_allow_html=True)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # HEADER
-# ─────────────────────────────────────────────────────────────────────────────
-now_str = datetime.now().strftime("%a %b %d %Y · %I:%M:%S %p")
+# -----------------------------------------------------------------------------
+now_str = datetime.now().strftime("%a %b %d %Y * %I:%M:%S %p")
 st.markdown(f"""
 <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:4px
 <div>
@@ -742,16 +742,16 @@ st.markdown(f"""
 </div>
 <div style="height:1px;background:linear-gradient(90deg,#f5a623,#1e2d3d);margin-bottom:20px">
 """, unsafe_allow_html=True)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # LOAD DATA
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 using_mock = False
 if api_key and (refresh_btn or st.session_state.last_refresh is None):
 with st.spinner(""):
 raw = fetch_all_props(api_key, selected_book_keys)
 st.session_state.last_refresh = datetime.now()
 if not raw:
-st.warning("No props returned — check key or try on game day. Using demo data.")
+st.warning("No props returned -- check key or try on game day. Using demo data.")
 raw = mock_props()
 using_mock = True
 elif not api_key:
@@ -782,11 +782,11 @@ st.markdown('<div style="background:#1a1200;border:1px solid #f5a62344;border-ra
 if st.session_state.steam_alerts:
 alerts = st.session_state.steam_alerts[-3:]
 for a in alerts:
-direction = "▲" if a["curr"] > a["prev"] else "▼"
+direction = "^" if a["curr"] > a["prev"] else "v"
 st.markdown(f'<div style="background:#1a0f00;border:1px solid #ff910044;border-radius
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # KPI ROW
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 if not df_filtered.empty:
 pos_more = df_filtered[df_filtered["EV More"] >= 0.03]
 pos_less = df_filtered[df_filtered["EV Less"] >= 0.03]
@@ -812,9 +812,9 @@ st.markdown(f"""
 <div class="stat-value" style="font-size:22px">{val}</div>
 </div>""", unsafe_allow_html=True)
 st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # TABS
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
 " LIVE PROPS ",
 " ANALYTICS ",
@@ -822,15 +822,15 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 " BANKROLL ",
 " METHODOLOGY ",
 ])
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — LIVE PROPS
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# TAB 1 -- LIVE PROPS
+# ==============================================================================
 with tab1:
 if df_filtered.empty:
 st.info("No props match current filters.")
 else:
 # Top plays spotlight
-st.markdown('<div class="section-tag"> TOP +EV PLAYS</div>', unsafe_allow_html=True
+st.markdown('<div class="section-tag">! TOP +EV PLAYS</div>', unsafe_allow_html=True)
 top_more = df_filtered[df_filtered["EV More"] >= 0.03].head(4)
 top_less = df_filtered[df_filtered["EV Less"] >= 0.03].head(4)
 if not top_more.empty:
@@ -949,9 +949,9 @@ st.markdown(f"""
 <div>Suggested stake: <span style="color:#f5a623">${prow['1/2Kelly More'] * s
 </div>
 """, unsafe_allow_html=True)
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — ANALYTICS
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# TAB 2 -- ANALYTICS
+# ==============================================================================
 with tab2:
 if df_filtered.empty:
 st.info("Load data first.")
@@ -993,9 +993,9 @@ text=grade_counts.values, textposition="auto",
 fig_grade.update_layout(**PLOT_LAYOUT, height=220,
 title=dict(text="Props by Confidence Grade", font_color="#f5a623", font_size=12))
 st.plotly_chart(fig_grade, use_container_width=True, config={"displayModeBar":False})
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — PARLAY BUILDER
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# TAB 3 -- PARLAY BUILDER
+# ==============================================================================
 with tab3:
 if df_filtered.empty:
 st.info("Load props first.")
@@ -1117,20 +1117,20 @@ st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-tag"> SAVED PARLAYS</div>', unsafe_allow_html=
 for p in reversed(st.session_state.saved_parlays[-5:]):
 ev_c = "#00e676" if p["ev"] >= 0 else "#ff5252"
-legs_str = " · ".join([f"{l['player'].split()[-1]} {l['direction']}" for l in
+legs_str = " * ".join([f"{l['player'].split()[-1]} {l['direction']}" for l in
 st.markdown(f"""<div class="prop-row">
 <div>
 <div style="font-size:11px;color:#c8d8e8">{legs_str}</div>
-<div style="font-size:9px;color:#4a6275">{p['platform']} · {p['n']}-p
+<div style="font-size:9px;color:#4a6275">{p['platform']} * {p['n']}-p
 </div>
 <div style="text-align:right">
 <div style="font-size:14px;color:{ev_c}">{p['ev']:+.1%}</div>
-<div style="font-size:10px;color:#4a6275">{p['payout']}x · ${p['stake
+<div style="font-size:10px;color:#4a6275">{p['payout']}x * ${p['stake
 </div>
 </div>""", unsafe_allow_html=True)
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — BANKROLL
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# TAB 4 -- BANKROLL
+# ==============================================================================
 with tab4:
 st.markdown('<div class="section-tag"> BANKROLL MANAGER</div>', unsafe_allow_html=True)
 current_br = st.session_state.bankroll + sum(b.get("pnl",0) for b in st.session_state.bet
@@ -1220,39 +1220,39 @@ use_container_width=True, height=220,
 if st.button(" Clear Log"):
 st.session_state.bet_log = []
 st.rerun()
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — METHODOLOGY
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# TAB 5 -- METHODOLOGY
+# ==============================================================================
 with tab5:
 st.markdown("""
 <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8aa0b4;line-heigh
 <div style="color:#f5a623;font-size:14px;margin-bottom:12px">FAIR VALUE CALCULATION</div>
-<b style="color:#c8d8e8">Step 1 — Data Collection</b><br>
+<b style="color:#c8d8e8">Step 1 -- Data Collection</b><br>
 HR props pulled from The Odds API using sharp, high-liquidity books.
 Books ordered by sharpness: Pinnacle -> DraftKings -> FanDuel -> BetMGM -> Caesars.<br><b
-<b style="color:#c8d8e8">Step 2 — Implied Probability</b><br>
+<b style="color:#c8d8e8">Step 2 -- Implied Probability</b><br>
 Each book's American odds converted: <span style="color:#29b6f6">implied = 1 / decimal</s
 American -> Decimal: positive odds = o/100+1, negative odds = 100/|o|+1<br><br>
-<b style="color:#c8d8e8">Step 3 — Consensus (Market Truth)</b><br>
+<b style="color:#c8d8e8">Step 3 -- Consensus (Market Truth)</b><br>
 Simple arithmetic mean across all sharp books for each side.
 More books = higher confidence = better grade.<br><br>
-<b style="color:#c8d8e8">Step 4 — No-Vig (Multiplicative Method)</b><br>
+<b style="color:#c8d8e8">Step 4 -- No-Vig (Multiplicative Method)</b><br>
 <span style="color:#29b6f6">fair_over = mkt_over / (mkt_over + mkt_under)</span><br>
 This removes the bookmaker margin proportionally from both sides.<br><br>
-<b style="color:#c8d8e8">Step 5 — EV vs DFS Platform</b><br>
+<b style="color:#c8d8e8">Step 5 -- EV vs DFS Platform</b><br>
 PrizePicks and Underdog pay ~1:1 per leg (entry buyin returned if leg wins).<br>
 <span style="color:#29b6f6">EV = fair_p x (payout + 1) - 1</span><br>
 For 1:1 this simplifies to: <span style="color:#29b6f6">EV = fair_p x 2 - 1</span><br>
 Break-even at fair_p = 50.0%<br><br>
-<b style="color:#c8d8e8">Step 6 — Kelly Criterion (1/2 Kelly)</b><br>
+<b style="color:#c8d8e8">Step 6 -- Kelly Criterion (1/2 Kelly)</b><br>
 <span style="color:#29b6f6">Full Kelly = (bxp - q) / b</span> where b=net payout odds, p=
 We use 1/2 Kelly to reduce variance while maintaining edge.<br><br>
 <div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">CONFIDENCE GRADE</div>
 Grades scored on EV magnitude, number of books sampled, and book divergence (std dev):<br
-<span style="color:#00e676">A+ / A</span> — High EV, 4+ books, low divergence<br>
-<span style="color:#29b6f6">B+ / B</span> — Moderate EV, 3+ books<br>
-<span style="color:#f5a623">C</span> — Low EV or few books<br>
-<span style="color:#ff5252">D / F</span> — Marginal or negative EV<br><br>
+<span style="color:#00e676">A+ / A</span> -- High EV, 4+ books, low divergence<br>
+<span style="color:#29b6f6">B+ / B</span> -- Moderate EV, 3+ books<br>
+<span style="color:#f5a623">C</span> -- Low EV or few books<br>
+<span style="color:#ff5252">D / F</span> -- Marginal or negative EV<br><br>
 <div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">STEAM DETECTION</div>
 A "steam move" flag triggers when the fair probability shifts >=3% between refreshes.
 This can indicate sharp money moving the line or new information (injury, lineup change).
@@ -1262,16 +1262,16 @@ DFS platforms (PrizePicks, Underdog Fantasy, DraftKings DFS, FanDuel DFS) operat
 This tool identifies when market-implied fair probability creates positive expected value
 against a platform's fixed payout structure.<br><br>
 <div style="color:#f5a623;font-size:14px;margin:16px 0 12px 0">LIMITATIONS & DISCLAIMER</
-• HR props are low-probability events with high variance. EV edge can be wiped by small s
-• DFS platform payouts and rules change — always verify current structure before playing<
-• Correlation between players in the same game is not fully modeled<br>
-• This tool is for informational and educational purposes only<br>
-• Past EV does not guarantee future results. Play within your means<br><br>
+* HR props are low-probability events with high variance. EV edge can be wiped by small s
+* DFS platform payouts and rules change -- always verify current structure before playing
+* Correlation between players in the same game is not fully modeled<br>
+* This tool is for informational and educational purposes only<br>
+* Past EV does not guarantee future results. Play within your means<br><br>
 </div>
 """, unsafe_allow_html=True)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # AUTO-REFRESH
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 if auto_refresh:
 elapsed = (datetime.now() - st.session_state.last_refresh).seconds if st.session_state.la
 remaining = max(0, 90 - elapsed)
