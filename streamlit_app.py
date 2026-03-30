@@ -338,7 +338,7 @@ return "C"
 return "D"
 def grade_badge(grade: str) -> str:
 g = grade.replace("+","")
-cls = {"A":"badge-A","B":"badge-B","C":"badge-C","D":"badge-D","F":"badge-D"}.get(g,"badg
+cls = {"A":"badge-A","B":"badge-B","C":"badge-C","D":"badge-D","F":"badge-D"}
 return f'<span class="badge {cls}">{grade}</span>'
 def steam_badge() -> str:
 return '<span class="badge badge-steam"> STEAM</span>'
